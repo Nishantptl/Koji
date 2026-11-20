@@ -1,0 +1,173 @@
+[
+  {
+    "id": "sushi-1",
+    "name": "California Avocado",
+    "price": 400,
+    "category": "Sushi",
+    "isVeg": true,
+    "description": "Avocado, Cucumber, Scallion (fresh - mild)",
+    "imageUrl": "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=300&q=80"
+  },
+  {
+    "id": "sushi-2",
+    "name": "Cheese Corn Cheddar Melt",
+    "price": 400,
+    "category": "Sushi",
+    "isVeg": true,
+    "description": "Crispy corn Tikki, Scallion, Cheddar cheese (Crispy - Cheesy - Fresh)",
+    "imageUrl": "https://images.unsplash.com/photo-1617196034796-73dfa7b1fd56?w=300&q=80"
+  },
+  {
+    "id": "sushi-3",
+    "name": "Crispy Chicken",
+    "price": 400,
+    "category": "Sushi",
+    "isVeg": false,
+    "description": "Crispy chicken, Scallion, Bell pepper (Crispy - Juicy)",
+    "imageUrl": "https://images.unsplash.com/photo-1611143669185-af224c5e3252?w=300&q=80"
+  },
+  {
+    "id": "sushi-4",
+    "name": "Prawn Tempura",
+    "price": 500,
+    "category": "Sushi",
+    "isVeg": false,
+    "description": "Tempura Prawn, Cream cheese, tobiko (crunchy - umami)",
+    "imageUrl": "https://images.unsplash.com/photo-1563245372-f21724e3856d?w=300&q=80"
+  },
+  {
+    "id": "sushi-5",
+    "name": "California Crab",
+    "price": 500,
+    "category": "Sushi",
+    "isVeg": false,
+    "description": "Crab, cucumber, tobiko (fresh - mild)",
+    "imageUrl": "https://images.unsplash.com/photo-1553621042-f6e147245754?w=300&q=80"
+  },
+  {
+    "id": "sushi-6",
+    "name": "Double Salmon Roll",
+    "price": 999,
+    "category": "Sushi",
+    "isVeg": false,
+    "description": "Smoked salmon - cream cheese - sweet soy (smoky - rich)",
+    "imageUrl": "https://images.unsplash.com/photo-1617196034183-421b4917c92d?w=300&q=80"
+  },
+  {
+    "id": "wok-1",
+    "name": "Gochujang (Veg)",
+    "price": 300,
+    "category": "Wok & Crisp",
+    "isVeg": true,
+    "description": "Crispy bites coated in a Korean-style sweet spicy gochujang glaze",
+    "imageUrl": "https://images.unsplash.com/photo-1525755662778-989d0524087e?w=300&q=80"
+  },
+  {
+    "id": "wok-2",
+    "name": "Gochujang (Chicken)",
+    "price": 300,
+    "category": "Wok & Crisp",
+    "isVeg": false,
+    "description": "Crispy chicken bites coated in a Korean-style sweet spicy gochujang glaze",
+    "imageUrl": "https://images.unsplash.com/photo-1567620832903-9fc6debc209f?w=300&q=80"
+  },
+  {
+    "id": "wok-3",
+    "name": "Bang Bang (Veg)",
+    "price": 350,
+    "category": "Wok & Crisp",
+    "isVeg": true,
+    "description": "Crispy bites tossed in a creamy, mildly spicy bang bang sauce",
+    "imageUrl": "https://images.unsplash.com/photo-1541696432-82c6da8ce7bf?w=300&q=80"
+  },
+  {
+    "id": "wok-4",
+    "name": "Bang Bang (Chicken)",
+    "price": 350,
+    "category": "Wok & Crisp",
+    "isVeg": false,
+    "description": "Crispy chicken bites tossed in a creamy, mildly spicy bang bang sauce",
+    "imageUrl": "https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?w=300&q=80"
+  },
+  {
+    "id": "wok-5",
+    "name": "Kung Pao (Veg)",
+    "price": 380,
+    "category": "Wok & Crisp",
+    "isVeg": true,
+    "description": "Wok-tossed with dried chili, vegetables, peanuts and Kung Pao sauce",
+    "imageUrl": "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=300&q=80"
+  },
+  {
+    "id": "wok-6",
+    "name": "Kung Pao (Chicken)",
+    "price": 380,
+    "category": "Wok & Crisp",
+    "isVeg": false,
+    "description": "Wok-tossed chicken with dried chili, vegetables, peanuts and Kung Pao sauce",
+    "imageUrl": "https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=300&q=80"
+  },
+  {
+    "id": "rice-1",
+    "name": "Fried Rice (Veg)",
+    "price": 280,
+    "category": "Rice & Noodles",
+    "isVeg": true,
+    "description": "Wok-tossed rice with fresh vegetables, aromatics and Asian seasoning",
+    "imageUrl": "https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=300&q=80"
+  },
+  {
+    "id": "rice-2",
+    "name": "Fried Rice (Chicken)",
+    "price": 300,
+    "category": "Rice & Noodles",
+    "isVeg": false,
+    "description": "Wok-tossed rice with tender chicken, aromatics and Asian seasoning",
+    "imageUrl": "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=300&q=80"
+  },
+  {
+    "id": "rice-3",
+    "name": "Burnt Garlic Rice (Veg)",
+    "price": 300,
+    "category": "Rice & Noodles",
+    "isVeg": true,
+    "description": "Fragrant rice tossed with roasted garlic, vegetables and light Asian seasoning",
+    "imageUrl": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=300&q=80"
+  },
+  {
+    "id": "rice-4",
+    "name": "Burnt Garlic Rice (Chicken)",
+    "price": 350,
+    "category": "Rice & Noodles",
+    "isVeg": false,
+    "description": "Fragrant rice tossed with roasted garlic, chicken and light Asian seasoning",
+    "imageUrl": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=300&q=80"
+  },
+  {
+    "id": "noodles-1",
+    "name": "Chilli Garlic Noodles (Veg)",
+    "price": 300,
+    "category": "Rice & Noodles",
+    "isVeg": true,
+    "description": "Smoky wok-tossed noodles with aromatic garlic, fresh chili and bold Asian flavours",
+    "imageUrl": "https://images.unsplash.com/photo-1585032226651-759b368d7246?w=300&q=80"
+  },
+  {
+    "id": "noodles-2",
+    "name": "Chilli Garlic Noodles (Chicken)",
+    "price": 350,
+    "category": "Rice & Noodles",
+    "isVeg": false,
+    "description": "Smoky wok-tossed noodles with chicken, aromatic garlic, fresh chili and bold Asian flavours",
+    "imageUrl": "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=300&q=80"
+  },
+  {
+    "id": "mocktail-1",
+    "name": "Green Apple Yuzu",
+    "price": 220,
+    "category": "Mocktail",
+    "isVeg": true,
+    "description": "Green Apple Yuzu Citrus Soda",
+    "imageUrl": "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=300&q=80"
+  }
+]
