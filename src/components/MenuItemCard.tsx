@@ -96,7 +96,7 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({
             )}
           </View>
 
-          {/* Row 2: Dish Description (#9F886F, trimmed/clean) */}
+          {/* Row 2: Dish Description (#8C9E91, 2 lines max) */}
           {item.description ? (
             <Text
               style={styles.description}
@@ -264,10 +264,10 @@ const styles = StyleSheet.create({
     ...FONTS.bold,
   },
   description: {
-    fontSize: 11,
-    color: COLORS.natural,               // #9F886F trimmed/clean
+    fontSize: 12,
+    color: '#8C9E91', // Muted sage slate
     ...FONTS.regular,
-    lineHeight: 15,
+    lineHeight: 16,
     marginBottom: 6,
   },
   bottomRow: {

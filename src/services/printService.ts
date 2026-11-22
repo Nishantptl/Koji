@@ -1,7 +1,7 @@
 import { Linking, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Order, CartItem } from '../types';
-import { formatTime, formatDate } from './storage';
+import { formatTime } from './storage';
 
 export const AUTOPRINT_STORAGE_KEY = '@koji_autoprint_kot';
 export const PAPER_WIDTH_STORAGE_KEY = '@koji_paper_width';
@@ -204,6 +204,13 @@ export function formatSingleKotSlip(
   } else {
     lines.push(padLeftRight(`Token: ${token}`, `Time: ${timeStr}`, width));
   }
+  const orderTypeDisplay =
+    order.orderType === 'Take Away' || order.orderType === 'Parcel'
+      ? 'Parcel'
+      : order.orderType === 'Car'
+      ? 'Car'
+      : 'Dine-in';
+  lines.push(padLeftRight(`Order Type: ${orderTypeDisplay}`, '', width).trimEnd());
 
   // 4. Customer Details Row (if present)
   if (order.customerName || order.customerPhone) {
@@ -286,70 +293,265 @@ export function formatAllStationKots(
 }
 
 /**
- * Thermal Monospace Formatter: Customer Receipt
- * Strict width enforcement (48 cols for 80mm).
- * Shows strictly: Header, Token/Time/Date/Customer, Itemized Dishes & Prices, Total Amount, and Footer.
- * Zero prep notes, zero AMOUNT PAID, and zero PAYMENT: PAID status lines.
+ * Strict DD-MM-YYYY Date Formatter
  */
-export function formatCustomerReceipt(order: Order, width = ROLL_WIDTH): string {
+export function formatDDMMYYYY(timestamp: string): string {
+  try {
+    const d = new Date(timestamp);
+    if (isNaN(d.getTime())) return '';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${dd}-${mm}-${yyyy}`;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Strict hh:mm A Time Formatter
+ */
+export function formatTimeHHMMA(timestamp: string): string {
+  try {
+    const d = new Date(timestamp);
+    if (isNaN(d.getTime())) return '';
+    let hours = d.getHours();
+    const minutes = d.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const minStr = minutes < 10 ? `0${minutes}` : `${minutes}`;
+    return `${hours}:${minStr} ${ampm}`;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 4-column itemized row formatter for 80mm (48-column) monospace thermal paper.
+ * Column 1 (ITEM): 24 chars left-aligned (wrapped if >23 chars, indenting subsequent lines with 2 spaces)
+ * Column 2 (QTY): 5 chars right-aligned
+ * Column 3 (RATE): 9 chars right-aligned (0.00)
+ * Column 4 (AMOUNT): 10 chars right-aligned (0.00)
+ * Total width: 24 + 5 + 9 + 10 = 48 columns
+ */
+export function formatReceiptItemRow(
+  name: string,
+  qty: number,
+  rate: number,
+  lineTotal: number,
+  width = ROLL_WIDTH
+): string[] {
   const lines: string[] = [];
-  const timeStr = formatTime(order.timestamp);
-  const dateStr = formatDate(order.timestamp);
-  const token = order.token.startsWith('#') ? order.token : `#${order.token}`;
+  const rateStr = rate.toFixed(2);
+  const amountStr = lineTotal.toFixed(2);
 
-  // Header
-  lines.push(padCenter('K O J I', width));
-  lines.push(padCenter('Asian Crafted Fusion', width));
-  lines.push(divider('=', width));
-  lines.push(padCenter('*** CUSTOMER RECEIPT ***', width));
-  lines.push(divider('=', width));
+  if (width === 48) {
+    const qtyCol = String(qty).padStart(5, ' ');
+    const rateCol = rateStr.padStart(9, ' ');
+    const amountCol = amountStr.padStart(10, ' ');
+    const numCols = qtyCol + rateCol + amountCol; // exactly 24 chars
 
-  // Order Details
-  lines.push(padLeftRight(`Token: ${token}`, `Time: ${timeStr}`, width));
-  lines.push(`Date: ${dateStr}`.slice(0, width));
-
-  if (order.customerName || order.customerPhone) {
-    const custParts: string[] = [];
-    if (order.customerName) custParts.push(order.customerName);
-    if (order.customerPhone) custParts.push(`(${order.customerPhone})`);
-    const fullCustStr = `Customer: ${custParts.join(' ')}`;
-    if (fullCustStr.length <= width) {
-      lines.push(fullCustStr);
+    const trimmed = name.trim();
+    if (trimmed.length <= 23) {
+      lines.push((trimmed.padEnd(24, ' ') + numCols).slice(0, 48));
     } else {
-      lines.push(`Customer: ${order.customerName || ''}`.slice(0, width));
-      if (order.customerPhone) {
-        lines.push(`  (${order.customerPhone})`.slice(0, width));
+      // Word wrap first line up to 23 chars so numbers stay vertically aligned
+      const words = trimmed.split(/\s+/);
+      let firstLine = '';
+      let wordIdx = 0;
+      while (wordIdx < words.length) {
+        const candidate = firstLine ? `${firstLine} ${words[wordIdx]}` : words[wordIdx];
+        if (candidate.length <= 23) {
+          firstLine = candidate;
+          wordIdx++;
+        } else {
+          break;
+        }
+      }
+      if (!firstLine) {
+        firstLine = trimmed.slice(0, 23);
+        const remainder = trimmed.slice(23).trim();
+        lines.push((firstLine.padEnd(24, ' ') + numCols).slice(0, 48));
+        if (remainder) {
+          lines.push(`  ${remainder}`.slice(0, 48));
+        }
+      } else {
+        const remainder = words.slice(wordIdx).join(' ').trim();
+        lines.push((firstLine.padEnd(24, ' ') + numCols).slice(0, 48));
+        if (remainder) {
+          let rem = remainder;
+          while (rem.length > 0) {
+            lines.push(`  ${rem.slice(0, 46)}`.slice(0, 48));
+            rem = rem.slice(46).trim();
+          }
+        }
+      }
+    }
+  } else {
+    // Fallback for 32 columns (58mm)
+    const qtyCol = String(qty).padStart(3, ' ');
+    const rateCol = rateStr.padStart(7, ' ');
+    const amountCol = amountStr.padStart(8, ' ');
+    const numCols = qtyCol + rateCol + amountCol;
+    const nameMax = Math.max(1, width - numCols.length);
+
+    const trimmed = name.trim();
+    if (trimmed.length <= nameMax - 1) {
+      lines.push((trimmed.padEnd(nameMax, ' ') + numCols).slice(0, width));
+    } else {
+      lines.push((trimmed.slice(0, nameMax - 1).padEnd(nameMax, ' ') + numCols).slice(0, width));
+      const rem = trimmed.slice(nameMax - 1).trim();
+      if (rem) {
+        lines.push(`  ${rem}`.slice(0, width));
       }
     }
   }
 
-  lines.push(divider('-', width));
-  lines.push(padLeftRight('ITEMS', 'PRICE (Rs)', width));
+  return lines;
+}
+
+/**
+ * Thermal Monospace Formatter: Customer Receipt (Invoice Layout)
+ * Strict 48-column layout for Posiflow KP307-UEWB (80mm) via RawBT.
+ * Matches exact itemized invoice specifications:
+ * 1. Centered Header Block (Koji brand + New Magdalla address)
+ * 2. Two-column Metadata Block (Bill No, Date DD-MM-YYYY, Customer, Time hh:mm A)
+ * 3. Itemized Table (ITEM 24 | QTY 5 | RATE 9 | AMOUNT 10)
+ * 4. Totals & Discount Breakdown (Subtotal, optional Discount & Net Taxable Amount, GRAND TOTAL Rs.X.00)
+ * 5. Payment Mode & Centered Footer + Hardware Auto-Cut command (\n\n\n\x1D\x56\x42\x00)
+ */
+export function formatCustomerReceipt(order: Order, width = ROLL_WIDTH): string {
+  const lines: string[] = [];
+
+  // 1. Header Block (Centered across 48 columns)
+  lines.push(padCenter('Koji - Asian Crafted Fusion', width));
+  lines.push(padCenter('Behind Saibaba Mandir, New Magdalla', width));
+  lines.push(padCenter('Dumas Road, Surat, Gujarat, 395007', width));
+  lines.push(divider('=', width));
+
+  // 2. Metadata Block (Two-column padded to 48 chars)
+  const rawToken = (order as any).tokenNumber || order.token || '01';
+  const tokenNumber = String(rawToken).replace(/^#/, '');
+  const formattedDate =
+    formatDDMMYYYY(order.timestamp) || formatDDMMYYYY(new Date().toISOString());
+  const formattedTime =
+    formatTimeHHMMA(order.timestamp) || formatTime(order.timestamp);
+
+  const billNo = `Bill No: #${tokenNumber}`;
+  const dateStr = `Date: ${formattedDate}`;
+  lines.push(padLeftRight(billNo, dateStr, width));
+
+  const rawCustomer =
+    order.customerName && order.customerName.trim()
+      ? order.customerName.trim()
+      : 'Walk-in';
+  const safeCustomer =
+    rawCustomer.length > 24 ? `${rawCustomer.slice(0, 21)}...` : rawCustomer;
+  const customerStr = `Customer: ${safeCustomer}`;
+  const timeStr = `Time: ${formattedTime}`;
+  lines.push(padLeftRight(customerStr, timeStr, width));
+  const orderTypeDisplay =
+    order.orderType === 'Take Away' || order.orderType === 'Parcel'
+      ? 'Parcel'
+      : order.orderType === 'Car'
+      ? 'Car'
+      : 'Dine-in';
+  lines.push(padLeftRight(`Order Type: ${orderTypeDisplay}`, '', width).trimEnd());
   lines.push(divider('-', width));
 
-  // Dishes List with unit and line totals
-  order.items.forEach((item) => {
-    if (item.status === 'cancelled') return;
-    const itemTotal = item.price * item.quantity;
-    const itemTitle = `${item.quantity}x ${item.name}`;
-    const priceStr = `Rs.${itemTotal}`;
+  // 3. Itemized Table (Strict 48-column fixed-width alignment)
+  if (width === 48) {
+    lines.push('ITEM                      QTY     RATE    AMOUNT');
+  } else {
+    lines.push(padLeftRight('ITEM', 'QTY   RATE   AMOUNT', width));
+  }
+  lines.push(divider('-', width));
 
-    if ((itemTitle + ' ' + priceStr).length <= width) {
-      lines.push(padLeftRight(itemTitle, priceStr, width));
-    } else {
-      lines.push(itemTitle.slice(0, width));
-      lines.push(padLeftRight(`  @ Rs.${item.price}`, priceStr, width));
-    }
+  const activeItems = (order.items || []).filter(
+    (item) => item.status !== 'cancelled' && item.quantity > 0
+  );
+
+  activeItems.forEach((item) => {
+    const rate = item.price;
+    const lineTotal = item.price * item.quantity;
+    const itemRows = formatReceiptItemRow(
+      item.name,
+      item.quantity,
+      rate,
+      lineTotal,
+      width
+    );
+    itemRows.forEach((r) => lines.push(r));
   });
 
   lines.push(divider('-', width));
 
-  // Bill Total
-  lines.push(padLeftRight('TOTAL AMOUNT:', `Rs.${order.totalAmount}`, width));
+  // 4. Totals & Discount Breakdown (Right-aligned to column 48)
+  const subtotal = activeItems.reduce(
+    (sum, item) => sum + item.price * item.quantity,
+    0
+  );
+  lines.push(padLeftRight('Subtotal', subtotal.toFixed(2), width));
+
+  const anyOrder = order as any;
+  const discountVal =
+    typeof anyOrder.discount === 'number'
+      ? anyOrder.discount
+      : typeof anyOrder.discountAmount === 'number'
+      ? anyOrder.discountAmount
+      : 0;
+  const discountPercent =
+    typeof anyOrder.discountPercent === 'number' ? anyOrder.discountPercent : 0;
+
+  if (discountVal > 0 || discountPercent > 0) {
+    const discountAmount =
+      discountVal > 0 ? discountVal : (subtotal * discountPercent) / 100;
+    const discountLabel =
+      discountPercent > 0
+        ? `${discountPercent}%`
+        : anyOrder.discountReason || 'Discount';
+    const netAmount = Math.max(0, subtotal - discountAmount);
+
+    lines.push(
+      padLeftRight(
+        `Discount (${discountLabel})`,
+        `-${discountAmount.toFixed(2)}`,
+        width
+      )
+    );
+    lines.push(padLeftRight('Net Taxable Amount', netAmount.toFixed(2), width));
+  }
 
   lines.push(divider('=', width));
+  const grandTotal =
+    order.totalAmount !== undefined ? order.totalAmount : subtotal;
+  lines.push(padLeftRight('GRAND TOTAL', `Rs.${grandTotal.toFixed(2)}`, width));
+  lines.push(divider('=', width));
+
+  // 5. Payment Mode & Footer
+  let paymentStatusText = 'Pending (Unpaid)';
+  if (order.paymentStatus === 'Completed') {
+    if (order.paymentMethod === 'UPI') {
+      paymentStatusText = 'UPI (Paid)';
+    } else if (order.paymentMethod === 'Cash') {
+      paymentStatusText = 'Cash (Paid)';
+    } else if (order.paymentMethod === 'UPI + Cash') {
+      paymentStatusText = 'UPI + Cash (Paid)';
+    } else if (order.paymentMethod) {
+      paymentStatusText = `${order.paymentMethod} (Paid)`;
+    } else {
+      paymentStatusText = 'Paid';
+    }
+  } else if (order.paymentStatus === 'Partial') {
+    const due = order.balanceDue !== undefined ? order.balanceDue : 0;
+    paymentStatusText = `Partial (Due: Rs.${due.toFixed(2)})`;
+  }
+
+  lines.push(`Payment Mode: ${paymentStatusText}`.slice(0, width));
+  lines.push(divider('-', width));
   lines.push(padCenter('Thank you for dining with us!', width));
-  lines.push(padCenter('Please visit again', width));
+  lines.push(padCenter('Please Visit again.', width));
 
   // Hardware auto-cut command at the end of the customer receipt
   return lines.join('\n') + ESCPOS_AUTO_CUT;

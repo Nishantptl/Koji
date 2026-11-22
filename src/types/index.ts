@@ -25,6 +25,8 @@ export interface CartItem extends MenuItem {
 
 export type OrderStatus = 'preparing' | 'completed';
 
+export type OrderType = 'Dine-in' | 'Parcel' | 'Car' | 'Take Away';
+
 export type PaymentMethod = 'UPI' | 'Cash' | 'UPI + Cash';
 
 export type PaymentStatus = 'Pending' | 'Partial' | 'Completed';
@@ -48,12 +50,16 @@ export interface Order {
   completedAt?: string;   // ISO string when marked completed
   customerName?: string;
   customerPhone?: string;
+  orderType?: OrderType;  // 'Dine-in' | 'Parcel' | 'Car'
   paymentMethod?: PaymentMethod;
   paymentStatus?: PaymentStatus;
   payments?: PaymentRecord[]; // Split payment tracking (e.g. initial UPI + add-on Cash)
   notes?: string;
   items: CartItem[];
-  totalAmount: number;    // Cumulative sum of all items in the ticket
+  subtotal?: number;      // Bill subtotal before discount
+  discount?: number;      // Live discount amount in INR
+  discountPercent?: number; // Discount percentage (e.g. 10 for 10%)
+  totalAmount: number;    // Cumulative sum of all items in the ticket (after discount)
   amountPaid?: number;    // Actual money collected so far
   balanceDue?: number;    // Outstanding dues: totalAmount - amountPaid
   notified?: boolean;     // True if customer has been notified via WhatsApp for the whole order

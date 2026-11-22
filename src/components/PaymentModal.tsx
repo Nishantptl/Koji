@@ -29,6 +29,7 @@ interface PaymentModalProps {
   order: Order | null;
   onClose: () => void;
   onPaymentCompleted: (orderId: string, method: PaymentMethod, amount?: number) => void;
+  initialViewMode?: 'select' | 'upi_qr';
 }
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({
@@ -36,9 +37,13 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   order,
   onClose,
   onPaymentCompleted,
+  initialViewMode,
 }) => {
-  const [viewMode, setViewMode] = useState<'select' | 'upi_qr'>('select');
+  const [activeMode, setActiveMode] = useState<'select' | 'upi_qr' | null>(null);
   const [upiConfig, setUpiConfig] = useState<UpiConfig>({ upiId: '', merchantName: 'Kōji' });
+
+  const defaultMode = initialViewMode || (order?.paymentMethod === 'UPI' ? 'upi_qr' : 'select');
+  const viewMode = activeMode || defaultMode;
 
   useEffect(() => {
     let isMounted = true;
@@ -60,7 +65,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   }, []);
 
   const handleModalClose = () => {
-    setViewMode('select');
+    setActiveMode(null);
     onClose();
   };
 
@@ -80,7 +85,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {}
-    setViewMode('select');
+    setActiveMode(null);
     onPaymentCompleted(order.id, 'Cash', amountToCollect);
     onClose();
   };
@@ -90,7 +95,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-    setViewMode('upi_qr');
+    setActiveMode('upi_qr');
   };
 
   // Confirm UPI payment received
@@ -98,7 +103,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {}
-    setViewMode('select');
+    setActiveMode(null);
     onPaymentCompleted(order.id, 'UPI', amountToCollect);
     onClose();
   };
@@ -216,7 +221,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                     <View style={styles.headerLeft}>
                       <TouchableOpacity
                         activeOpacity={0.7}
-                        onPress={() => setViewMode('select')}
+                        onPress={() => setActiveMode('select')}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         style={styles.backBtn}
                         accessibilityLabel="Back to payment choices"

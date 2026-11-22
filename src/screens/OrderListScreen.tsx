@@ -8,30 +8,19 @@ import {
   RefreshControl,
   Alert,
   TextInput,
-  Linking,
+  AppState,
 } from 'react-native';
 import {
   Trash2,
-  Clock,
-  User,
-  Phone,
-  FileText,
   Receipt,
   Search,
   Sparkles,
-  Check,
-  X,
-  CheckCircle2,
-  Edit3,
-  Printer,
-  MessageCircle,
-  Wallet,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { useKeepAwake } from 'expo-keep-awake';
 import { Order, CartItem, DailyMetrics, ItemStatus, PaymentMethod } from '../types';
 import { BrandHeader } from '../components/BrandHeader';
-import { TokenBadge } from '../components/TokenBadge';
-import { VegBadge } from '../components/VegBadge';
+import { OrderTicketCard } from '../components/OrderTicketCard';
 import { EditOrderModal } from '../components/EditOrderModal';
 import { PaymentModal } from '../components/PaymentModal';
 import { PrintOrderModal } from '../components/PrintOrderModal';
@@ -53,8 +42,6 @@ import {
   markOrderNotified,
   markSpecificItemsNotified,
   clearTodayOrders,
-  formatTime,
-  formatDate,
   formatDateClean,
   isOrderFromToday,
 } from '../services/storage';
@@ -73,6 +60,9 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
   onNavigateToPOS,
   onOrdersChanged,
 }) => {
+  // Operational safeguard: Prevent screen dimming/sleeping during active kitchen timeline shift
+  useKeepAwake();
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [metrics, setMetrics] = useState<DailyMetrics>({
     totalOrders: 0,
@@ -117,6 +107,18 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
       isMounted = false;
     };
   }, [refreshTrigger]);
+
+  // Midnight rollover / AppState listener: Refresh shift timeline & metrics when returning to foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        loadData();
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [loadData]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -375,353 +377,33 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
 
   // Order item card renderer
   const renderOrderCard = ({ item }: { item: Order }) => {
-    const isToday = isOrderFromToday(item.timestamp);
-    const timeStr = formatTime(item.timestamp);
-    const dateStr = formatDate(item.timestamp);
-    const isPreparing = item.status === 'preparing';
-
-    const balanceDue = typeof item.balanceDue === 'number'
-      ? item.balanceDue
-      : (item.paymentStatus === 'Completed' ? 0 : item.totalAmount);
-    const amountPaid = typeof item.amountPaid === 'number'
-      ? item.amountPaid
-      : (item.paymentStatus === 'Completed' ? item.totalAmount : 0);
-    const isPaid = item.paymentStatus === 'Completed' || balanceDue <= 0;
-    const isPartial = item.paymentStatus === 'Partial' || (amountPaid > 0 && balanceDue > 0);
-
     return (
-      <View style={[styles.orderCard, isPreparing && styles.orderCardActive]}>
-        {/* Header Row: Token Badge, Time & Date, Total */}
-        <View style={styles.cardHeader}>
-          {/* Left: Token Pill (#09) and Time (4:13 PM) */}
-          <View style={styles.cardHeaderLeft}>
-            <TokenBadge token={item.token} variant="apricot" size="lg" />
-            <View style={styles.timeRow}>
-              <Clock size={13} color={COLORS.textSecondary} />
-              <Text style={styles.timeText}>{timeStr}</Text>
-              {!isToday && <Text style={styles.dateText}>• {dateStr}</Text>}
-            </View>
-          </View>
-
-          {/* Right: Print Button and Total Amount */}
-          <View style={styles.cardHeaderRight}>
-            <TouchableOpacity
-              activeOpacity={0.75}
-              onPress={() => setPrintingOrder(item)}
-              style={styles.printCardBtn}
-              accessibilityLabel="Print order KOT or receipt"
-            >
-              <Printer size={13} color={COLORS.forestGreen} strokeWidth={2.2} />
-              <Text style={styles.printCardBtnText}>Print</Text>
-            </TouchableOpacity>
-            <View style={styles.amountCol}>
-              <Text style={styles.amountText}>₹{item.totalAmount}</Text>
-              {isPartial && balanceDue > 0 && (
-                <Text style={styles.amountSubDueText}>Due: ₹{balanceDue}</Text>
-              )}
-            </View>
-          </View>
-        </View>
-
-        {/* Status Bar Row: [ ✎ Edit Order ] [ Payment Pill ] [ Order Status ] */}
-        <View style={styles.statusBarRow}>
-          <View style={styles.actionBarGroup}>
-            {/* 1. Edit Order */}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => setEditingOrder(item)}
-              style={styles.actionBtnEdit}
-              hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
-            >
-              <Edit3 size={12} color={COLORS.organic} strokeWidth={2.2} />
-              <Text
-                style={styles.actionBtnEditText}
-                numberOfLines={1}
-                adjustsFontSizeToFit={true}
-                minimumFontScale={0.85}
-              >
-                Edit Order
-              </Text>
-            </TouchableOpacity>
-
-            {/* 2. Payment Pill (Streamlined "Payment" / "✓ UPI" / "✓ Cash") */}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => setPayingOrder(item)}
-              style={[
-                styles.actionBtnPayment,
-                isPaid ? styles.paymentPillCompleted : styles.paymentPillPending,
-              ]}
-              hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
-            >
-              {!isPaid && (
-                <Wallet size={12} color="#B86815" strokeWidth={2.4} />
-              )}
-              <Text
-                style={[
-                  styles.actionBtnPaymentText,
-                  isPaid
-                    ? styles.paymentPillTextCompleted
-                    : styles.paymentPillTextPending,
-                ]}
-                numberOfLines={1}
-                adjustsFontSizeToFit={true}
-                minimumFontScale={0.85}
-              >
-                {isPaid
-                  ? item.paymentMethod === 'UPI + Cash' ||
-                    (Array.isArray(item.payments) &&
-                      item.payments.some((p) => p.method === 'UPI' && p.amount > 0) &&
-                      item.payments.some((p) => p.method === 'Cash' && p.amount > 0))
-                    ? '✓ UPI + Cash'
-                    : item.paymentMethod === 'Cash' ||
-                      (Array.isArray(item.payments) &&
-                        item.payments.some((p) => p.method === 'Cash' && p.amount > 0) &&
-                        !item.payments.some((p) => p.method === 'UPI' && p.amount > 0))
-                    ? '✓ Cash'
-                    : '✓ UPI'
-                  : 'Payment'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* 3. Order Status */}
-            {isPreparing ? (
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => handleMarkOrderDone(item.id)}
-                style={styles.actionBtnDone}
-                hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
-              >
-                <Check size={13} color={COLORS.ivory} strokeWidth={2.8} />
-                <Text
-                  style={styles.actionBtnDoneText}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit={true}
-                  minimumFontScale={0.85}
-                >
-                  Mark Done ✓
-                </Text>
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.actionBtnCompletedBadge}>
-                <CheckCircle2 size={12} color={COLORS.veg} strokeWidth={2.4} />
-                <Text
-                  style={styles.actionBtnCompletedText}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit={true}
-                  minimumFontScale={0.85}
-                >
-                  {item.completedAt ? `Done ${formatTime(item.completedAt)}` : 'Completed'}
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {/* Customer Details Row (clean text with direct phone linking & WhatsApp Notify Ready) */}
-        {(item.customerName || item.customerPhone) && (
-          <View style={styles.customerRow}>
-            <View style={styles.customerInfoGroup}>
-              {item.customerName && (
-                <View style={styles.customerDetail}>
-                  <User size={13} color={COLORS.organic} />
-                  <Text style={styles.customerDetailText}>{item.customerName}</Text>
-                </View>
-              )}
-              {item.customerPhone && (
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    try {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    } catch {}
-                    const cleanPhone = item.customerPhone?.replace(/[^0-9+]/g, '');
-                    if (cleanPhone) {
-                      Linking.openURL(`tel:${cleanPhone}`).catch(() => {
-                        Alert.alert('Unable to Call', 'Could not open phone dialer on this device.');
-                      });
-                    }
-                  }}
-                  style={styles.customerDetail}
-                >
-                  <Phone size={13} color={COLORS.organic} />
-                  <Text style={styles.customerDetailText}>{item.customerPhone}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Option B: Whole Order WhatsApp Notify Ready Button */}
-            {item.customerPhone ? (
-              <TouchableOpacity
-                activeOpacity={0.75}
-                onPress={() => handleNotifyOrderReady(item)}
-                style={[
-                  styles.notifyOrderPill,
-                  item.notified && styles.notifyOrderPillNotified,
-                ]}
-                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                accessibilityLabel="Send complete order ready alert via WhatsApp"
-              >
-                {item.notified ? (
-                  <>
-                    <Check size={11} color="#25D366" strokeWidth={2.8} />
-                    <Text style={styles.notifyOrderPillTextNotified}>Notified</Text>
-                  </>
-                ) : (
-                  <>
-                    <MessageCircle size={11} color="#128C7E" strokeWidth={2.4} />
-                    <Text style={styles.notifyOrderPillText}>Notify Ready</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            ) : null}
-          </View>
-        )}
-
-        {/* Items List with Incremental Dish Serving / Progress Counter */}
-        <View style={styles.itemsContainer}>
-          {item.items.map((cartItem, idx) => {
-            const isItemCancelled = cartItem.status === 'cancelled';
-            const isItemDone =
-              cartItem.status === 'completed' ||
-              (cartItem.servedQuantity ?? 0) >= cartItem.quantity;
-            const servedCount =
-              typeof cartItem.servedQuantity === 'number'
-                ? cartItem.servedQuantity
-                : (isItemDone ? cartItem.quantity : 0);
-
-            const isAddonItem = Boolean(cartItem.isAddon || cartItem.addedAt);
-            const prevItem = idx > 0 ? item.items[idx - 1] : null;
-            const prevIsAddon = Boolean(prevItem?.isAddon || prevItem?.addedAt);
-            const showAddonDivider = Boolean(
-              isAddonItem &&
-                (!prevIsAddon ||
-                  (cartItem.addedAt &&
-                    prevItem?.addedAt &&
-                    formatTime(prevItem.addedAt) !== formatTime(cartItem.addedAt)))
-            );
-
-            return (
-              <React.Fragment key={`${cartItem.id}_${idx}`}>
-                {showAddonDivider && (
-                  <View style={styles.addonDividerContainer}>
-                    <View style={styles.addonDividerLine} />
-                    <View style={styles.addonPill}>
-                      <Text style={styles.addonPillText}>
-                        ── Added Items ({formatTime(cartItem.addedAt || item.timestamp)}) ──
-                      </Text>
-                    </View>
-                    <View style={styles.addonDividerLine} />
-                  </View>
-                )}
-
-                <View
-                  style={[
-                    styles.itemRow,
-                    isItemCancelled && styles.itemRowCancelled,
-                  ]}
-                >
-                  <View style={styles.itemLeft}>
-                    <VegBadge isVeg={cartItem.isVeg} size={15} />
-                    <Text
-                      style={[
-                        styles.multiplierText,
-                        isItemCancelled && styles.textLineThrough,
-                      ]}
-                    >
-                      {cartItem.quantity}x
-                    </Text>
-                    <Text
-                      style={[
-                        styles.itemNameText,
-                        isItemCancelled && styles.textLineThrough,
-                      ]}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                      adjustsFontSizeToFit={true}
-                      minimumFontScale={0.88}
-                    >
-                      {cartItem.name}
-                    </Text>
-                  </View>
-
-                  {/* Right: Compact Progressive Done Counter, Item Cancellation & WhatsApp Alert */}
-                  <View style={styles.itemRightActions}>
-                    <View style={styles.itemStatusButtonGroup}>
-                      {isItemCancelled ? (
-                        <View style={styles.itemCancelledBadge}>
-                          <Text style={styles.itemCancelledBadgeText}>Cancelled</Text>
-                        </View>
-                      ) : isItemDone ? (
-                        <View style={styles.itemDoneBadge}>
-                          <Check size={10} color={COLORS.veg} strokeWidth={2.8} />
-                          <Text style={styles.itemDoneBadgeText}>
-                            {cartItem.quantity}/{cartItem.quantity} Done
-                          </Text>
-                        </View>
-                      ) : (
-                        <>
-                          <TouchableOpacity
-                            activeOpacity={0.75}
-                            onPress={() => handleIncrementServed(item.id, idx)}
-                            style={styles.itemProgressBtn}
-                            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-                          >
-                            <Check size={10} color={COLORS.veg} strokeWidth={2.6} />
-                            <Text style={styles.itemProgressText}>
-                              {servedCount}/{cartItem.quantity} Done
-                            </Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            activeOpacity={0.75}
-                            onPress={() =>
-                              handleItemStatusChange(item.id, idx, 'cancelled')
-                            }
-                            style={styles.itemCancelActionBtn}
-                            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-                          >
-                            <X size={10} color={COLORS.danger} strokeWidth={2.8} />
-                            <Text style={styles.itemCancelActionText}>Cancel</Text>
-                          </TouchableOpacity>
-                        </>
-                      )}
-
-                      {/* Option A: WhatsApp Single Dish Ready Alert Button */}
-                      {!isItemCancelled && item.customerPhone ? (
-                        <TouchableOpacity
-                          activeOpacity={0.75}
-                          onPress={() => handleNotifyDishReady(item, cartItem, idx)}
-                          style={[
-                            styles.itemWhatsappBtn,
-                            cartItem.notified && styles.itemWhatsappBtnNotified,
-                          ]}
-                          hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-                          accessibilityLabel="Send WhatsApp pickup alert for this dish"
-                        >
-                          <MessageCircle
-                            size={12}
-                            color={cartItem.notified ? '#25D366' : COLORS.forestGreen}
-                            strokeWidth={2.4}
-                          />
-                        </TouchableOpacity>
-                      ) : null}
-                    </View>
-                  </View>
-                </View>
-              </React.Fragment>
-            );
-          })}
-        </View>
-
-        {/* Cooking Notes Callout (if present) */}
-        {item.notes ? (
-          <View style={styles.notesCallout}>
-            <FileText size={13} color={COLORS.organic} style={styles.noteIcon} />
-            <Text style={styles.notesText}>{item.notes}</Text>
-          </View>
-        ) : null}
-      </View>
+      <OrderTicketCard
+        order={item}
+        onPrint={(ord) => setPrintingOrder(ord)}
+        onEdit={(ord) => setEditingOrder(ord)}
+        onPayment={(ord) => {
+          const balanceDue =
+            typeof ord.balanceDue === 'number'
+              ? ord.balanceDue
+              : ord.paymentStatus === 'Completed'
+              ? 0
+              : ord.totalAmount;
+          const isPaid = ord.paymentStatus === 'Completed' || balanceDue <= 0;
+          if (!isPaid || balanceDue > 0) {
+            setPayingOrder(ord);
+          }
+        }}
+        onMarkDone={(orderId) => handleMarkOrderDone(orderId)}
+        onNotifyOrderReady={(ord) => handleNotifyOrderReady(ord)}
+        onNotifyDishReady={(ord, cartItem, idx) =>
+          handleNotifyDishReady(ord, cartItem, idx)
+        }
+        onIncrementServed={(orderId, idx) => handleIncrementServed(orderId, idx)}
+        onCancelItem={(orderId, idx) =>
+          handleItemStatusChange(orderId, idx, 'cancelled')
+        }
+      />
     );
   };
 

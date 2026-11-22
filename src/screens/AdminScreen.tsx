@@ -690,107 +690,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
 
 
 
-            {/* Feature Tile 1: Menu Management */}
-            <TouchableOpacity
-              activeOpacity={0.88}
-              onPress={() => navigateTo('menu_manage')}
-              style={styles.elevatedDarkCard}
-            >
-              <View style={styles.cardLeftContent}>
-                <View style={styles.cardIconBadge}>
-                  <UtensilsCrossed size={22} color={COLORS.forestGreen} strokeWidth={2.2} />
-                </View>
-
-
-                <View style={styles.cardTextGroup}>
-                  <Text style={styles.cardMainTitle}>Menu Management</Text>
-                  <Text style={styles.cardSubtitle}>
-                    View, edit prices, or toggle availability
-                  </Text>
-                </View>
-
-
-              </View>
-
-
-              <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
-            </TouchableOpacity>
-
-            {/* Feature Tile 2: Add New Dish */}
-            <TouchableOpacity
-              activeOpacity={0.88}
-              onPress={() => navigateTo('add_dish')}
-              style={styles.elevatedDarkCard}
-            >
-              <View style={styles.cardLeftContent}>
-                <View style={styles.cardIconBadge}>
-                  <PlusCircle size={22} color={COLORS.forestGreen} strokeWidth={2.2} />
-                </View>
-
-
-                <View style={styles.cardTextGroup}>
-                  <Text style={styles.cardMainTitle}>Add New Dish</Text>
-                  <Text style={styles.cardSubtitle}>
-                    Create and publish a new item to cart menu
-                  </Text>
-                </View>
-
-
-              </View>
-
-
-              <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
-            </TouchableOpacity>
-
-            {/* Feature Tile 3: Export Reports */}
-            <TouchableOpacity
-              activeOpacity={0.88}
-              onPress={() => navigateTo('export')}
-              style={styles.elevatedDarkCard}
-            >
-              <View style={styles.cardLeftContent}>
-                <View style={styles.cardIconBadge}>
-                  <FileSpreadsheet size={22} color={COLORS.forestGreen} strokeWidth={2.2} />
-                </View>
-
-
-                <View style={styles.cardTextGroup}>
-                  <Text style={styles.cardMainTitle}>Export Reports</Text>
-                  <Text style={styles.cardSubtitle}>
-                    Download order history CSV
-                  </Text>
-                </View>
-
-
-              </View>
-
-
-              <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
-            </TouchableOpacity>
-
-            {/* Feature Tile 4: Orders History */}
-            <TouchableOpacity
-              activeOpacity={0.88}
-              onPress={() => navigateTo('all_orders')}
-              style={styles.elevatedDarkCard}
-            >
-              <View style={styles.cardLeftContent}>
-                <View style={styles.cardIconBadge}>
-                  <History size={22} color={COLORS.forestGreen} strokeWidth={2.2} />
-                </View>
-
-                <View style={styles.cardTextGroup}>
-                  <Text style={styles.cardMainTitle}>Orders History</Text>
-                  <Text style={styles.cardSubtitle}>
-                    Full shift history, dates & receipts
-                  </Text>
-                </View>
-              </View>
-
-              <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
-            </TouchableOpacity>
-
-            {/* Feature Tile 5: UPI & QR Payment Setup */}
+            {/* Feature Tile 1: UPI & QR Code Setup */}
             <TouchableOpacity
               activeOpacity={0.88}
               onPress={() => navigateTo('upi_setup')}
@@ -802,9 +702,97 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
                 </View>
 
                 <View style={styles.cardTextGroup}>
-                  <Text style={styles.cardMainTitle}>UPI & QR Payment Setup</Text>
+                  <Text style={styles.cardMainTitle}>UPI & QR Code Setup</Text>
                   <Text style={styles.cardSubtitle}>
                     Manage UPI ID & dynamic payment QR
+                  </Text>
+                </View>
+              </View>
+
+              <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
+            </TouchableOpacity>
+
+            {/* Feature Tile 2: Menu Management */}
+            <TouchableOpacity
+              activeOpacity={0.88}
+              onPress={() => navigateTo('menu_manage')}
+              style={styles.elevatedDarkCard}
+            >
+              <View style={styles.cardLeftContent}>
+                <View style={styles.cardIconBadge}>
+                  <UtensilsCrossed size={22} color={COLORS.forestGreen} strokeWidth={2.2} />
+                </View>
+
+                <View style={styles.cardTextGroup}>
+                  <Text style={styles.cardMainTitle}>Menu Management</Text>
+                  <Text style={styles.cardSubtitle}>
+                    View, edit prices, or toggle availability
+                  </Text>
+                </View>
+              </View>
+
+              <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
+            </TouchableOpacity>
+
+            {/* Feature Tile 3: Add New Dish */}
+            <TouchableOpacity
+              activeOpacity={0.88}
+              onPress={() => navigateTo('add_dish')}
+              style={styles.elevatedDarkCard}
+            >
+              <View style={styles.cardLeftContent}>
+                <View style={styles.cardIconBadge}>
+                  <PlusCircle size={22} color={COLORS.forestGreen} strokeWidth={2.2} />
+                </View>
+
+                <View style={styles.cardTextGroup}>
+                  <Text style={styles.cardMainTitle}>Add New Dish</Text>
+                  <Text style={styles.cardSubtitle}>
+                    Create and publish a new item to cart menu
+                  </Text>
+                </View>
+              </View>
+
+              <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
+            </TouchableOpacity>
+
+            {/* Feature Tile 4: Order History */}
+            <TouchableOpacity
+              activeOpacity={0.88}
+              onPress={() => navigateTo('all_orders')}
+              style={styles.elevatedDarkCard}
+            >
+              <View style={styles.cardLeftContent}>
+                <View style={styles.cardIconBadge}>
+                  <History size={22} color={COLORS.forestGreen} strokeWidth={2.2} />
+                </View>
+
+                <View style={styles.cardTextGroup}>
+                  <Text style={styles.cardMainTitle}>Order History</Text>
+                  <Text style={styles.cardSubtitle}>
+                    Full shift history, dates & receipts
+                  </Text>
+                </View>
+              </View>
+
+              <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
+            </TouchableOpacity>
+
+            {/* Feature Tile 5: Export Report */}
+            <TouchableOpacity
+              activeOpacity={0.88}
+              onPress={() => navigateTo('export')}
+              style={styles.elevatedDarkCard}
+            >
+              <View style={styles.cardLeftContent}>
+                <View style={styles.cardIconBadge}>
+                  <FileSpreadsheet size={22} color={COLORS.forestGreen} strokeWidth={2.2} />
+                </View>
+
+                <View style={styles.cardTextGroup}>
+                  <Text style={styles.cardMainTitle}>Export Report</Text>
+                  <Text style={styles.cardSubtitle}>
+                    Download order history PDF & CSV
                   </Text>
                 </View>
               </View>
@@ -1502,7 +1490,10 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
                             {formatTime(order.timestamp)}
                           </Text>
                           <Text style={styles.historyCardDateText}>
-                            {formatDate(order.timestamp)}
+                            {formatDate(order.timestamp)} •{' '}
+                            {order.orderType === 'Take Away' || order.orderType === 'Parcel'
+                              ? 'Parcel'
+                              : order.orderType || 'Dine-in'}
                           </Text>
                         </View>
                       </View>

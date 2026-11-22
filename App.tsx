@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Platform,
+  AppState,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -14,7 +15,7 @@ import { TakeOrderScreen } from './src/screens/TakeOrderScreen';
 import { OrderListScreen } from './src/screens/OrderListScreen';
 import { AdminScreen } from './src/screens/AdminScreen';
 import { CartProvider } from './src/context/CartContext';
-import { getDailyMetrics } from './src/services/storage';
+import { getDailyMetrics, checkAndHandleDailyRollover } from './src/services/storage';
 import { COLORS, FONTS, SPACING } from './src/constants/theme';
 
 type Tab = 'take_order' | 'orders_timeline' | 'admin';
@@ -34,6 +35,42 @@ export default function App() {
       // Ignore
     }
   }, []);
+
+  // Automatic Daily Token Reset (Midnight Rollover Safeguard)
+  // Check on launch, AppState foreground transitions, and periodic interval
+  useEffect(() => {
+    const handleCheckRollover = async () => {
+      try {
+        const { isRollover } = await checkAndHandleDailyRollover();
+        if (isRollover) {
+          setOrdersRefreshTrigger((prev) => prev + 1);
+          setMenuRefreshTrigger((prev) => prev + 1);
+          updateMetricsCount();
+        }
+      } catch {
+        // Fallback
+      }
+    };
+
+    // 1. Initial launch check
+    handleCheckRollover();
+
+    // 2. Foreground transition check
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        handleCheckRollover();
+        updateMetricsCount();
+      }
+    });
+
+    // 3. Periodic safeguard check (every 30s) in case terminal remains awake continuously past midnight
+    const interval = setInterval(handleCheckRollover, 30000);
+
+    return () => {
+      subscription.remove();
+      clearInterval(interval);
+    };
+  }, [updateMetricsCount]);
 
   useEffect(() => {
     let isMounted = true;

@@ -7,6 +7,7 @@ import {
   TextInput,
   StyleSheet,
   Alert,
+  AppState,
 } from 'react-native';
 import {
   ShoppingBag,
@@ -17,15 +18,17 @@ import {
   Sparkles,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { MenuItem, OrderInput } from '../types';
+import { useKeepAwake } from 'expo-keep-awake';
+import { MenuItem, Order, OrderInput, OrderType } from '../types';
 import defaultMenuSeed from '../data/menu.json';
 import { BrandHeader } from '../components/BrandHeader';
 import { CategoryBar } from '../components/CategoryBar';
 import { MenuItemCard } from '../components/MenuItemCard';
 import { CheckoutModal } from '../components/CheckoutModal';
+import { PaymentModal } from '../components/PaymentModal';
 import { TokenBadge } from '../components/TokenBadge';
 import { useCart } from '../context/CartContext';
-import { saveOrder, getNextToken, getMenuItems } from '../services/storage';
+import { saveOrder, getNextToken, getMenuItems, updateOrderPayment } from '../services/storage';
 import { printStationKots } from '../services/printService';
 import { COLORS, FONTS, SPACING } from '../constants/theme';
 
@@ -38,12 +41,16 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
   onOrderSaved,
   menuRefreshTrigger,
 }) => {
+  // Operational safeguard: Prevent screen dimming/sleeping during active counter shift
+  useKeepAwake();
+
   const [menuItems, setMenuItems] = useState<MenuItem[]>(defaultMenuSeed as MenuItem[]);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [nextToken, setNextToken] = useState<string>('#01');
   const [isCheckoutOpen, setIsCheckoutOpen] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [payingOrder, setPayingOrder] = useState<Order | null>(null);
 
   // Global draft cart context (persisted across tabs & app reloads)
   const {
@@ -66,6 +73,18 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
       // Fallback
     }
   }, []);
+
+  // Midnight rollover / AppState listener: Refresh nextToken when returning to foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        refreshNextToken();
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [refreshNextToken]);
 
   useEffect(() => {
     let isMounted = true;
@@ -160,19 +179,39 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
     customerPhone?: string;
     notes?: string;
     autoPrint?: boolean;
+    discount?: number;
+    discountPercent?: number;
+    subtotal?: number;
+    paymentMethod?: 'UPI' | 'Cash';
+    orderType?: OrderType;
   }) => {
     if (cartItemsList.length === 0) return;
 
     setIsSubmitting(true);
     try {
+      const rawDiscount = details.discount || 0;
+      const subtotal = details.subtotal || totalAmount;
+      const discount = Math.min(subtotal, Math.max(0, rawDiscount));
+      const finalTotal = Math.max(0, subtotal - discount);
+
+      const isCash = details.paymentMethod === 'Cash';
+      const isUpi = details.paymentMethod === 'UPI';
+
       const orderPayload: OrderInput = {
         customerName: details.customerName,
         customerPhone: details.customerPhone,
         notes: details.notes,
+        orderType: details.orderType || 'Dine-in',
         items: cartItemsList.map((i) => ({ ...i, status: 'pending', servedQuantity: 0 })),
-        totalAmount,
+        subtotal,
+        discount,
+        discountPercent: details.discountPercent,
+        totalAmount: finalTotal,
         status: 'preparing',
-        paymentStatus: 'Pending',
+        paymentMethod: details.paymentMethod,
+        paymentStatus: isCash ? 'Completed' : 'Pending',
+        amountPaid: isCash ? finalTotal : 0,
+        balanceDue: isCash ? 0 : finalTotal,
       };
 
       const saved = await saveOrder(orderPayload);
@@ -192,11 +231,15 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
       // Refresh next token for subsequent order
       await refreshNextToken();
 
-      Alert.alert(
-        'Order Saved! 🎉',
-        `Token ${saved.token} has been logged in kitchen (Total: ₹${saved.totalAmount}).`,
-        [{ text: 'Take Next Order', style: 'default' }]
-      );
+      if (isUpi) {
+        setPayingOrder(saved);
+      } else {
+        Alert.alert(
+          'Order Saved! 🎉',
+          `Token ${saved.token} has been logged in kitchen (Total: ₹${saved.totalAmount}${isCash ? ' • Paid via Cash' : ''}).`,
+          [{ text: 'Take Next Order', style: 'default' }]
+        );
+      }
     } catch (err: any) {
       Alert.alert('Save Failed', err?.message || 'Unable to save order. Please retry.');
     } finally {
@@ -210,23 +253,10 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
       <BrandHeader
         subtitle="Asian Crafted Fusion"
         rightElement={
-          <>
-            <View style={styles.tokenContainer}>
-              <Text style={styles.tokenLabel}>NEXT TOKEN</Text>
-              <TokenBadge token={nextToken} variant="apricot" size="md" />
-            </View>
-
-            {totalQuantity > 0 && (
-              <TouchableOpacity
-                onPress={handleClearCart}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                style={styles.resetButton}
-                accessibilityLabel="Reset cart"
-              >
-                <RotateCcw size={18} color={COLORS.organic} />
-              </TouchableOpacity>
-            )}
-          </>
+          <View style={styles.tokenContainer}>
+            <Text style={styles.tokenLabel}>NEXT TOKEN</Text>
+            <TokenBadge token={nextToken} variant="apricot" size="md" />
+          </View>
         }
       />
 
@@ -316,14 +346,26 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
               <Text style={styles.bottomBarTotal}>₹{totalAmount}</Text>
             </View>
 
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={handleOpenReview}
-              style={styles.reviewButton}
-            >
-              <Text style={styles.reviewButtonText}>Review & Save</Text>
-              <ArrowRight size={18} color={COLORS.cream} strokeWidth={2.4} />
-            </TouchableOpacity>
+            <View style={styles.bottomBarActions}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={handleClearCart}
+                style={styles.bottomResetButton}
+                accessibilityLabel="Reset cart"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <RotateCcw size={20} color="#D9383A" strokeWidth={2.4} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={handleOpenReview}
+                style={styles.reviewButton}
+              >
+                <Text style={styles.reviewButtonText}>Review & Save</Text>
+                <ArrowRight size={18} color={COLORS.cream} strokeWidth={2.4} />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       )}
@@ -337,6 +379,21 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
         onClose={() => setIsCheckoutOpen(false)}
         onConfirm={handleConfirmOrder}
         isSubmitting={isSubmitting}
+      />
+
+      {/* Dynamic UPI Payment Modal when UPI is selected at checkout */}
+      <PaymentModal
+        visible={Boolean(payingOrder)}
+        order={payingOrder}
+        onClose={() => setPayingOrder(null)}
+        onPaymentCompleted={async (orderId, method, amount) => {
+          try {
+            const payMethod: 'UPI' | 'Cash' = method === 'Cash' ? 'Cash' : 'UPI';
+            await updateOrderPayment(orderId, payMethod, amount);
+            onOrderSaved?.();
+          } catch {}
+          setPayingOrder(null);
+        }}
       />
     </View>
   );
@@ -510,6 +567,18 @@ const styles = StyleSheet.create({
     color: COLORS.forestGreen,
     ...FONTS.heavy,
     letterSpacing: 0.5,
+  },
+  bottomBarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  bottomResetButton: {
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+    padding: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   reviewButton: {
     flexDirection: 'row',

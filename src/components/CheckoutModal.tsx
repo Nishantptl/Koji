@@ -23,9 +23,11 @@ import {
   Sparkles,
   Printer,
   Check,
+  Smartphone,
+  Banknote,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { CartItem, CustomerProfile } from '../types';
+import { CartItem, CustomerProfile, OrderType } from '../types';
 import { VegBadge } from './VegBadge';
 import { TokenBadge } from './TokenBadge';
 import { getCustomerProfiles } from '../services/storage';
@@ -46,16 +48,22 @@ interface CheckoutModalProps {
     customerPhone: string;
     notes?: string;
     autoPrint?: boolean;
+    discount?: number;
+    discountPercent?: number;
+    subtotal?: number;
+    paymentMethod?: 'UPI' | 'Cash';
+    orderType?: OrderType;
   }) => void;
   isSubmitting?: boolean;
 }
 
 const QUICK_NOTES = [
-  'Extra Spicy 🌶️',
+  'Extra Spicy',
   'Mild / Less Spicy',
+  'No Cucumber',
   'No Onion/Garlic',
-  'Pack Separately 🥡',
-  'Less Ice 🧊',
+  'Less Ice',
+  'Pack Separately',
   'Extra Sauce',
 ];
 
@@ -71,10 +79,22 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [notes, setNotes] = useState('');
+  const [discountPercentInput, setDiscountPercentInput] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'Cash' | null>(null);
+  const [orderType, setOrderType] = useState<OrderType>('Dine-in');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<CustomerProfile[]>([]);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
   const [autoPrint, setAutoPrint] = useState<boolean>(true);
+
+  const subtotal = useMemo(() => {
+    return items.reduce((s, i) => s + i.price * i.quantity, 0);
+  }, [items]);
+
+  const rawPercent = parseInt(discountPercentInput, 10) || 0;
+  const discountPercent = Math.min(100, Math.max(0, rawPercent));
+  const discountAmount = Math.round((subtotal * discountPercent) / 100);
+  const finalTotal = Math.max(0, subtotal - discountAmount);
 
   // Load returning customer profiles and auto-print preference
   useEffect(() => {
@@ -191,17 +211,28 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       customerPhone: cleanPhone,
       notes: notes.trim() || undefined,
       autoPrint,
+      discount: discountAmount > 0 ? discountAmount : undefined,
+      discountPercent: discountPercent > 0 ? discountPercent : undefined,
+      subtotal,
+      paymentMethod: paymentMethod || undefined,
+      orderType,
     });
 
     // Reset form fields
     setCustomerName('');
     setCustomerPhone('');
     setNotes('');
+    setDiscountPercentInput('');
+    setPaymentMethod(null);
+    setOrderType('Dine-in');
     setValidationError(null);
   };
 
   const handleClose = () => {
     setValidationError(null);
+    setDiscountPercentInput('');
+    setPaymentMethod(null);
+    setOrderType('Dine-in');
     onClose();
   };
 
@@ -272,9 +303,56 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
                   <View style={styles.receiptDivider} />
 
+                  {/* Subtotal Row */}
+                  <View style={styles.summaryLineRow}>
+                    <Text style={styles.summaryLineLabel}>Subtotal</Text>
+                    <Text style={styles.summaryLineValue}>₹{subtotal}</Text>
+                  </View>
+
+                  {/* Percentage-based Discount Input Row */}
+                  <View style={styles.discountRow}>
+                    <Text style={styles.discountRowLabel}>Discount (%)</Text>
+                    <View style={styles.discountInputBox}>
+                      <TextInput
+                        style={styles.discountInputField}
+                        placeholder="0"
+                        placeholderTextColor={COLORS.textMuted}
+                        value={discountPercentInput}
+                        onChangeText={(t) => {
+                          const clean = t.replace(/[^0-9]/g, '');
+                          if (!clean) {
+                            setDiscountPercentInput('');
+                            return;
+                          }
+                          const val = parseInt(clean, 10);
+                          if (val > 100) {
+                            setDiscountPercentInput('100');
+                          } else {
+                            setDiscountPercentInput(clean);
+                          }
+                        }}
+                        keyboardType="numeric"
+                        maxLength={3}
+                        selectTextOnFocus
+                      />
+                      <Text style={styles.discountSuffix}>%</Text>
+                    </View>
+                  </View>
+
+                  {/* Auto-calculated Discount Deduction */}
+                  {discountPercent > 0 && (
+                    <View style={styles.discountAppliedRow}>
+                      <Text style={styles.discountAppliedLabel}>
+                        Discount ({discountPercent}%)
+                      </Text>
+                      <Text style={styles.discountAppliedValue}>-₹{discountAmount}</Text>
+                    </View>
+                  )}
+
+                  {/* Total Bill Amount (Net) */}
                   <View style={styles.totalRow}>
                     <Text style={styles.totalLabel}>Total Bill Amount</Text>
-                    <Text style={styles.totalAmount}>₹{totalAmount}</Text>
+                    <Text style={styles.totalAmount}>₹{finalTotal}</Text>
                   </View>
                 </View>
 
@@ -456,14 +534,120 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     })}
                   </View>
 
-                  {/* Payment Status Notice */}
-                  <View style={styles.paymentNoticeBox}>
-                    <Text style={styles.paymentNoticeLabel}>PAYMENT STATUS</Text>
-                    <View style={styles.paymentNoticePill}>
-                      <Text style={styles.paymentNoticeText}>
-                        ⏳ Pending (Collect upon serving)
-                      </Text>
+                  {/* Interactive ORDER TYPE Selector */}
+                  <View style={styles.orderTypeSectionBox}>
+                    <Text style={styles.orderTypeSectionLabel}>ORDER TYPE</Text>
+                    <View style={styles.orderTypePillsRow}>
+                      {(['Dine-in', 'Parcel', 'Car'] as OrderType[]).map((type) => {
+                        const isSelected = orderType === type;
+                        return (
+                          <TouchableOpacity
+                            key={type}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                              try {
+                                Haptics.selectionAsync();
+                              } catch {}
+                              setOrderType(type);
+                            }}
+                            style={[
+                              styles.orderTypeSelectorPill,
+                              isSelected && styles.orderTypeSelectorPillActive,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.orderTypeSelectorPillText,
+                                isSelected && styles.orderTypeSelectorPillTextActive,
+                              ]}
+                            >
+                              {type}
+                            </Text>
+                            {isSelected && (
+                              <Check size={13} color="#FFFFFF" strokeWidth={2.8} />
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
                     </View>
+                  </View>
+
+                  {/* Interactive PAYMENT Selector */}
+                  <View style={styles.paymentSectionBox}>
+                    <Text style={styles.paymentSectionLabel}>PAYMENT</Text>
+                    <View style={styles.paymentPillsRow}>
+                      {/* UPI Option */}
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          try {
+                            Haptics.selectionAsync();
+                          } catch {}
+                          setPaymentMethod((prev) => (prev === 'UPI' ? null : 'UPI'));
+                        }}
+                        style={[
+                          styles.paymentSelectorPill,
+                          paymentMethod === 'UPI' && styles.paymentSelectorPillActiveUpi,
+                        ]}
+                      >
+                        <Smartphone
+                          size={16}
+                          color={paymentMethod === 'UPI' ? '#1B5E20' : COLORS.textSecondary}
+                          strokeWidth={2.4}
+                        />
+                        <Text
+                          style={[
+                            styles.paymentSelectorPillText,
+                            paymentMethod === 'UPI' && styles.paymentSelectorPillTextActiveUpi,
+                          ]}
+                        >
+                          UPI
+                        </Text>
+                        {paymentMethod === 'UPI' && (
+                          <Check size={14} color="#1B5E20" strokeWidth={2.8} />
+                        )}
+                      </TouchableOpacity>
+
+                      {/* Cash Option */}
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          try {
+                            Haptics.selectionAsync();
+                          } catch {}
+                          setPaymentMethod((prev) => (prev === 'Cash' ? null : 'Cash'));
+                        }}
+                        style={[
+                          styles.paymentSelectorPill,
+                          paymentMethod === 'Cash' && styles.paymentSelectorPillActiveCash,
+                        ]}
+                      >
+                        <Banknote
+                          size={16}
+                          color={paymentMethod === 'Cash' ? '#0D47A1' : COLORS.textSecondary}
+                          strokeWidth={2.4}
+                        />
+                        <Text
+                          style={[
+                            styles.paymentSelectorPillText,
+                            paymentMethod === 'Cash' && styles.paymentSelectorPillTextActiveCash,
+                          ]}
+                        >
+                          Cash
+                        </Text>
+                        {paymentMethod === 'Cash' && (
+                          <Check size={14} color="#0D47A1" strokeWidth={2.8} />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+
+                    <Text style={styles.paymentHelperText}>
+                      {paymentMethod === 'UPI'
+                        ? '✓ Dynamic UPI QR code will open upon saving to scan & pay'
+                        : paymentMethod === 'Cash'
+                        ? '✓ Order will be saved and recorded as paid in Cash'
+                        : '• Unpaid / Collect upon serving (tap UPI or Cash to collect now)'}
+                    </Text>
                   </View>
 
                   {/* Auto-Print Station KOTs Toggle */}
@@ -512,7 +696,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   <Text style={styles.confirmButtonText}>
                     {isSubmitting
                       ? 'Saving Order...'
-                      : `Confirm & Save ${nextToken} • ₹${totalAmount}`}
+                      : `Confirm & Save ${nextToken} • ₹${finalTotal}`}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -916,30 +1100,173 @@ const styles = StyleSheet.create({
     ...FONTS.heavy,
     letterSpacing: 0.3,
   },
-  paymentNoticeBox: {
-    marginTop: SPACING.md,
-    marginBottom: SPACING.sm,
+  summaryLineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 3,
   },
-  paymentNoticeLabel: {
+  summaryLineLabel: {
+    fontSize: 13.5,
+    color: COLORS.textSecondary,
+    ...FONTS.medium,
+  },
+  summaryLineValue: {
+    fontSize: 14,
+    color: COLORS.organic,
+    ...FONTS.bold,
+  },
+  discountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    marginTop: 2,
+  },
+  discountRowLabel: {
+    fontSize: 13.5,
+    color: COLORS.textSecondary,
+    ...FONTS.medium,
+  },
+  discountInputBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderWidth: 1.2,
+    borderColor: COLORS.borderLight,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    height: 34,
+    minWidth: 90,
+  },
+  discountPrefix: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+    ...FONTS.bold,
+    marginRight: 4,
+  },
+  discountSuffix: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+    ...FONTS.bold,
+    marginLeft: 4,
+  },
+  discountInputField: {
+    fontSize: 13,
+    color: COLORS.organic,
+    ...FONTS.bold,
+    padding: 0,
+    minWidth: 40,
+    flex: 1,
+  },
+  discountAppliedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 3,
+  },
+  discountAppliedLabel: {
+    fontSize: 13,
+    color: COLORS.danger,
+    ...FONTS.medium,
+  },
+  discountAppliedValue: {
+    fontSize: 13.5,
+    color: COLORS.danger,
+    ...FONTS.bold,
+  },
+  orderTypeSectionBox: {
+    marginTop: SPACING.md,
+    marginBottom: SPACING.xs,
+  },
+  orderTypeSectionLabel: {
     fontSize: 11,
     color: COLORS.organic,
     ...FONTS.heavy,
     letterSpacing: 0.8,
-    marginBottom: 6,
+    marginBottom: 8,
   },
-  paymentNoticePill: {
-    backgroundColor: '#FAF2DE',
-    borderRadius: 12,
-    borderWidth: 1.2,
-    borderColor: COLORS.apricot,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+  orderTypePillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  orderTypeSelectorPill: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#F8F9F5',
+    borderWidth: 1.5,
+    borderColor: '#E0E7DE',
+    borderRadius: 12,
+    paddingVertical: 10,
   },
-  paymentNoticeText: {
+  orderTypeSelectorPillActive: {
+    backgroundColor: '#0D381E',
+    borderColor: '#0D381E',
+  },
+  orderTypeSelectorPillText: {
     fontSize: 13,
-    color: COLORS.organic,
+    color: '#4A5E50',
     ...FONTS.bold,
+  },
+  orderTypeSelectorPillTextActive: {
+    color: '#FFFFFF',
+  },
+  paymentSectionBox: {
+    marginTop: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  paymentSectionLabel: {
+    fontSize: 11,
+    color: COLORS.organic,
+    ...FONTS.heavy,
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  paymentPillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  paymentSelectorPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: COLORS.white,
+    borderWidth: 1.5,
+    borderColor: COLORS.borderLight,
+    borderRadius: 12,
+    paddingVertical: 10,
+  },
+  paymentSelectorPillActiveUpi: {
+    backgroundColor: '#E8F5E9',
+    borderColor: '#2E7D32',
+  },
+  paymentSelectorPillActiveCash: {
+    backgroundColor: '#E3F2FD',
+    borderColor: '#1976D2',
+  },
+  paymentSelectorPillText: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    ...FONTS.bold,
+  },
+  paymentSelectorPillTextActiveUpi: {
+    color: '#1B5E20',
+  },
+  paymentSelectorPillTextActiveCash: {
+    color: '#0D47A1',
+  },
+  paymentHelperText: {
+    fontSize: 11.5,
+    color: COLORS.textMuted,
+    ...FONTS.medium,
+    marginTop: 6,
+    paddingHorizontal: 2,
   },
 });

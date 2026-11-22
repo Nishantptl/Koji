@@ -7,6 +7,7 @@ import {
   Order,
   OrderInput,
   OrderStatus,
+  OrderType,
   ItemStatus,
   MenuItem,
   CartItem,
@@ -24,6 +25,7 @@ const STORAGE_KEY = 'koji_orders_cache';
 const MENU_STORAGE_KEY = 'koji_menu_cache';
 const PAYMENT_QR_STORAGE_KEY = '@koji_payment_qr';
 export const UPI_CONFIG_STORAGE_KEY = '@koji_upi_config';
+export const LAST_ACTIVE_DATE_KEY = '@koji_last_active_date';
 
 export const getUpiConfig = async (): Promise<UpiConfig> => {
   try {
@@ -71,12 +73,68 @@ export const resetPaymentQrUri = async (): Promise<void> => {
 };
 
 // ==========================================
+// DAILY ACTIVE DATE & ROLLOVER SAFEGUARD
+// ==========================================
+
+export const getLastActiveDate = async (): Promise<string | null> => {
+  try {
+    return await AsyncStorage.getItem(LAST_ACTIVE_DATE_KEY);
+  } catch {
+    return null;
+  }
+};
+
+export const setLastActiveDate = async (dateStr: string): Promise<void> => {
+  try {
+    await AsyncStorage.setItem(LAST_ACTIVE_DATE_KEY, dateStr);
+  } catch {}
+};
+
+/**
+ * Midnight rollover check:
+ * Compares current local date ('YYYY-MM-DD') with stored lastActiveDate.
+ * If todayDate !== lastActiveDate:
+ *   - Automatically updates lastActiveDate in AsyncStorage.
+ *   - Ensures token generation starts from #01 and today's shift KPIs start fresh at ₹0.
+ *   - Historical orders remain completely intact for Order History and Export Reports.
+ */
+export const checkAndHandleDailyRollover = async (): Promise<{
+  isRollover: boolean;
+  todayDate: string;
+  previousDate: string | null;
+}> => {
+  const todayDate = formatDateYYYYMMDD(new Date());
+  let lastActiveDate: string | null = null;
+  try {
+    lastActiveDate = await AsyncStorage.getItem(LAST_ACTIVE_DATE_KEY);
+  } catch {}
+
+  if (!lastActiveDate || lastActiveDate !== todayDate) {
+    try {
+      await AsyncStorage.setItem(LAST_ACTIVE_DATE_KEY, todayDate);
+    } catch {}
+    return {
+      isRollover: true,
+      todayDate,
+      previousDate: lastActiveDate,
+    };
+  }
+
+  return {
+    isRollover: false,
+    todayDate,
+    previousDate: lastActiveDate,
+  };
+};
+
+// ==========================================
 // DATE & TIME HELPERS
 // ==========================================
 
 export const isOrderFromToday = (timestamp: string): boolean => {
   try {
     const orderDate = new Date(timestamp);
+    if (isNaN(orderDate.getTime())) return false;
     const now = new Date();
     return (
       orderDate.getFullYear() === now.getFullYear() &&
@@ -116,7 +174,7 @@ export const formatDate = (isoString: string): string => {
   }
 };
 
-export const formatDateYYYYMMDD = (date: Date): string => {
+export const formatDateYYYYMMDD = (date: Date = new Date()): string => {
   const yyyy = date.getFullYear();
   const mm = String(date.getMonth() + 1).padStart(2, '0');
   const dd = String(date.getDate()).padStart(2, '0');
@@ -339,13 +397,29 @@ const normalizeOrder = (order: any): Order => {
     ];
   }
 
+  const rawSubtotal = typeof order.subtotal === 'number'
+    ? order.subtotal
+    : recalculateOrderTotal(normalizedItems);
+  const discount = Math.min(rawSubtotal, Math.max(0, order.discount || 0));
+  const subtotal = rawSubtotal;
+  const totalAmount = typeof order.totalAmount === 'number' && order.totalAmount > 0
+    ? order.totalAmount
+    : Math.max(0, subtotal - discount);
+
   return {
     ...order,
     items: normalizedItems,
     payments,
+    orderType:
+      order.orderType === 'Take Away' || order.orderType === 'Parcel'
+        ? 'Parcel'
+        : order.orderType || 'Dine-in',
+    discountPercent: typeof order.discountPercent === 'number' ? order.discountPercent : undefined,
     status: order.status === 'completed' ? 'completed' : 'preparing',
     paymentStatus: order.paymentStatus || (order.paymentMethod ? 'Completed' : 'Pending'),
-    totalAmount: recalculateOrderTotal(normalizedItems),
+    subtotal,
+    discount,
+    totalAmount,
   };
 };
 
@@ -367,6 +441,7 @@ export const getOrders = async (): Promise<Order[]> => {
 };
 
 export const saveOrder = async (orderData: OrderInput): Promise<Order> => {
+  await checkAndHandleDailyRollover();
   const existingOrders = await getOrders();
   const token = calculateTodayToken(existingOrders);
 
@@ -379,7 +454,13 @@ export const saveOrder = async (orderData: OrderInput): Promise<Order> => {
     printedAt: i.printedAt,
   }));
 
-  const totalAmount = recalculateOrderTotal(itemsWithStatus);
+  const rawSubtotal = recalculateOrderTotal(itemsWithStatus);
+  const subtotal = typeof orderData.subtotal === 'number' ? orderData.subtotal : rawSubtotal;
+  const discount = Math.min(subtotal, Math.max(0, orderData.discount || 0));
+  const totalAmount = typeof orderData.totalAmount === 'number'
+    ? orderData.totalAmount
+    : Math.max(0, subtotal - discount);
+
   const isPaid = orderData.paymentStatus === 'Completed';
   const amountPaid = isPaid ? totalAmount : (orderData.amountPaid ?? 0);
   const balanceDue = Math.max(0, totalAmount - amountPaid);
@@ -400,8 +481,19 @@ export const saveOrder = async (orderData: OrderInput): Promise<Order> => {
     });
   }
 
+  const rawOrderType = orderData.orderType;
+  const orderType: OrderType =
+    rawOrderType === 'Take Away' || rawOrderType === 'Parcel'
+      ? 'Parcel'
+      : rawOrderType === 'Car'
+      ? 'Car'
+      : 'Dine-in';
+
   const newOrder: Order = {
     ...orderData,
+    orderType,
+    subtotal,
+    discount,
     items: itemsWithStatus,
     totalAmount,
     amountPaid,
@@ -485,7 +577,9 @@ export const updateOrderItemStatus = async (
           servedQuantity: itemStatus === 'completed' ? currentItem.quantity : currentItem.servedQuantity,
         };
       }
-      const newTotal = recalculateOrderTotal(newItems);
+      const rawSubtotal = recalculateOrderTotal(newItems);
+      const discount = Math.min(rawSubtotal, Math.max(0, order.discount || 0));
+      const newTotal = Math.max(0, rawSubtotal - discount);
       const currentPaid = typeof order.amountPaid === 'number'
         ? order.amountPaid
         : (order.paymentStatus === 'Completed' ? order.totalAmount : 0);
@@ -563,7 +657,9 @@ export const incrementItemServedQuantity = async (
         status: isCompleted ? 'completed' : 'pending',
       };
 
-      const newTotal = recalculateOrderTotal(newItems);
+      const rawSubtotal = recalculateOrderTotal(newItems);
+      const discount = Math.min(rawSubtotal, Math.max(0, order.discount || 0));
+      const newTotal = Math.max(0, rawSubtotal - discount);
       const currentPaid = typeof order.amountPaid === 'number'
         ? order.amountPaid
         : (order.paymentStatus === 'Completed' ? order.totalAmount : 0);
@@ -705,7 +801,9 @@ export const updateOrderItems = async (
       const addonItems = updatedItems.filter((i) => i.isAddon || i.addedAt);
       const orderedItems = [...baseItems, ...addonItems];
 
-      const newTotal = recalculateOrderTotal(orderedItems);
+      const rawSubtotal = recalculateOrderTotal(orderedItems);
+      const discount = Math.min(rawSubtotal, Math.max(0, order.discount || 0));
+      const newTotal = Math.max(0, rawSubtotal - discount);
 
       // Determine money collected so far
       const currentPaid = typeof order.amountPaid === 'number'
@@ -944,6 +1042,7 @@ export const clearAllOrders = async (): Promise<void> => {
 };
 
 export const getDailyMetrics = async (): Promise<DailyMetrics> => {
+  await checkAndHandleDailyRollover();
   const orders = await getOrders();
   const todayOrders = orders.filter((o) => isOrderFromToday(o.timestamp));
   const totalRevenue = todayOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
@@ -959,6 +1058,7 @@ export const getDailyMetrics = async (): Promise<DailyMetrics> => {
 };
 
 export const getNextToken = async (): Promise<string> => {
+  await checkAndHandleDailyRollover();
   const orders = await getOrders();
   return calculateTodayToken(orders);
 };
@@ -1070,6 +1170,7 @@ export const generateCsvFromOrders = (orders: Order[]): string => {
   const headers = [
     'Token',
     'Date & Time',
+    'Order Type',
     'Customer Name',
     'Contact Number',
     'Dishes Ordered',
@@ -1090,14 +1191,20 @@ export const generateCsvFromOrders = (orders: Order[]): string => {
     // 2. Date & Time: Clean formatted timestamp DD-MM-YYYY hh:mm A
     const dateTimeStr = formatDateTimeDDMMYYYY(order.timestamp);
 
-    // 3. Customer Name: Individual separated column
+    // 3. Order Type: Normalized 'Parcel' | 'Dine-in' | 'Car'
+    const orderTypeDisplay =
+      order.orderType === 'Take Away' || order.orderType === 'Parcel'
+        ? 'Parcel'
+        : order.orderType || 'Dine-in';
+
+    // 4. Customer Name: Individual separated column
     const customerName = order.customerName ? order.customerName.trim() : '';
 
-    // 4. Contact Number: ="9876543210" formula so Excel never formats as scientific notation (e.g. 9.93E+09)
+    // 5. Contact Number: ="9876543210" formula so Excel never formats as scientific notation (e.g. 9.93E+09)
     const cleanPhone = order.customerPhone ? order.customerPhone.replace(/\D/g, '') : '';
     const phoneStr = cleanPhone ? `="${cleanPhone}"` : '';
 
-    // 5. Dishes Ordered: Single line joined with " | " so Excel row heights stay uniform
+    // 6. Dishes Ordered: Single line joined with " | " so Excel row heights stay uniform
     const dishesFormatted = order.items
       .map((item) => {
         const linePrice = item.price * item.quantity;
@@ -1110,7 +1217,7 @@ export const generateCsvFromOrders = (orders: Order[]): string => {
       .join(' | ');
     const dishesCell = escapeCsvField(dishesFormatted);
 
-    // 6. Split Payment Breakdown (UPI vs Cash)
+    // 7. Split Payment Breakdown (UPI vs Cash)
     let upiAmount = 0;
     let cashAmount = 0;
     if (Array.isArray(order.payments) && order.payments.length > 0) {
@@ -1140,15 +1247,16 @@ export const generateCsvFromOrders = (orders: Order[]): string => {
       paymentMode = 'Cash';
     }
 
-    // 7. Payment Status
+    // 8. Payment Status
     const paymentStatus = order.paymentStatus || 'Pending';
 
-    // 8. Total Bill (INR): Raw numeric value so Excel auto-aligns right & enables SUM()
+    // 9. Total Bill (INR): Raw numeric value so Excel auto-aligns right & enables SUM()
     const totalBill = typeof order.totalAmount === 'number' ? order.totalAmount : 0;
 
     return [
       escapeCsvField(tokenStr),
       escapeCsvField(dateTimeStr),
+      escapeCsvField(orderTypeDisplay),
       escapeCsvField(customerName),
       phoneStr,
       dishesCell,
@@ -1177,6 +1285,10 @@ export const generatePdfHtmlFromOrders = (orders: Order[], periodLabel: string):
       tokenStr = `#${tokenStr}`;
     }
     const dateTimeStr = formatDateTimeDDMMYYYY(order.timestamp);
+    const orderTypeDisplay =
+      order.orderType === 'Take Away' || order.orderType === 'Parcel'
+        ? 'Parcel'
+        : order.orderType || 'Dine-in';
     const customerName = order.customerName?.trim() || 'Walk-in';
     const cleanPhone = order.customerPhone ? order.customerPhone.replace(/\D/g, '') : '';
     const phoneDisplay = cleanPhone || '-';
@@ -1235,7 +1347,10 @@ export const generatePdfHtmlFromOrders = (orders: Order[], periodLabel: string):
     return `
       <tr>
         <td class="center"><span class="token-badge">${tokenStr}</span></td>
-        <td class="nowrap">${dateTimeStr}</td>
+        <td class="nowrap">
+          <div>${dateTimeStr}</div>
+          <span style="display: inline-block; margin-top: 3px; padding: 1px 6px; font-size: 8px; font-weight: 700; border-radius: 3px; background: #EDF2EC; color: #0D381E; border: 1px solid #C8D9CB;">${escapeHtml(orderTypeDisplay)}</span>
+        </td>
         <td><strong>${escapeHtml(customerName)}</strong></td>
         <td class="center nowrap">${phoneDisplay}</td>
         <td class="dish-col">${dishesHtml}</td>
