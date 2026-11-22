@@ -21,22 +21,22 @@ export const TokenBadge: React.FC<TokenBadgeProps> = ({
     switch (variant) {
       case 'organic':
         return {
-          bg: COLORS.organic,
-          text: COLORS.ivory,
-          border: COLORS.organic,
+          bg: COLORS.forest,
+          text: COLORS.white,
+          border: COLORS.forest,
         };
       case 'subtle':
         return {
-          bg: COLORS.surfaceMuted,
-          text: COLORS.organic,
-          border: COLORS.borderLight,
+          bg: COLORS.sage,
+          text: COLORS.forest,
+          border: COLORS.border,
         };
       case 'apricot':
       default:
         return {
-          bg: '#FDF1E2',
-          text: COLORS.apricot,
-          border: COLORS.apricot,
+          bg: COLORS.amberTint,
+          text: COLORS.amber,
+          border: COLORS.amber,
         };
     }
   };

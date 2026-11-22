@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
-  Alert,
   TextInput,
   AppState,
 } from 'react-native';
@@ -24,6 +23,7 @@ import { OrderTicketCard } from '../components/OrderTicketCard';
 import { EditOrderModal } from '../components/EditOrderModal';
 import { PaymentModal } from '../components/PaymentModal';
 import { PrintOrderModal } from '../components/PrintOrderModal';
+import { KojiConfirmModal, KojiConfirmModalProps } from '../components/KojiConfirmModal';
 import { printAddonStationKots } from '../services/printService';
 import {
   sendDishReadyNotification,
@@ -44,10 +44,12 @@ import {
   clearTodayOrders,
   formatDateClean,
   isOrderFromToday,
+  isOrderUnpaid,
+  recalculateOrderTotal,
 } from '../services/storage';
 import { COLORS, FONTS, SPACING } from '../constants/theme';
 
-type TimelineFilter = 'active' | 'all';
+type TimelineFilter = 'active' | 'all' | 'unpaid';
 
 interface OrderListScreenProps {
   refreshTrigger?: number;
@@ -75,7 +77,12 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('active');
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [payingOrder, setPayingOrder] = useState<Order | null>(null);
+  const [markDoneAfterPaymentId, setMarkDoneAfterPaymentId] = useState<string | null>(null);
   const [printingOrder, setPrintingOrder] = useState<Order | null>(null);
+  const [pendingCompletionOrder, setPendingCompletionOrder] = useState<Order | null>(null);
+  const [pendingDishIncrement, setPendingDishIncrement] = useState<{ orderId: string; itemIndex: number } | null>(null);
+  const [pendingDishIncrementAfterPayment, setPendingDishIncrementAfterPayment] = useState<{ orderId: string; itemIndex: number } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<KojiConfirmModalProps | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -131,8 +138,8 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
     setIsRefreshing(false);
   };
 
-  // Mark full order done
-  const handleMarkOrderDone = async (orderId: string) => {
+  // Helper to commit marking an order completed
+  const markOrderDoneAction = async (orderId: string) => {
     try {
       const updated = await updateOrderStatus(orderId, 'completed');
       setOrders(updated);
@@ -140,37 +147,227 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
       setMetrics(newMetrics);
       onOrdersChanged?.();
     } catch (err: any) {
-      Alert.alert('Update Failed', err?.message || 'Could not update order status.');
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'Update Failed',
+        title: 'Update Failed',
+        message: err?.message || 'Could not update order status.',
+        primaryLabel: 'OK',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
     }
   };
 
-  // Item-level Done / Cancel controls
-  const handleItemStatusChange = async (
-    orderId: string,
-    itemIndex: number,
-    status: ItemStatus
-  ) => {
+  // Mark full order done with unpaid rush safeguard
+  const handleMarkOrderDone = async (order: Order) => {
+    const dueAmount = Math.max(0, order.totalAmount - (order.paidAmount || order.amountPaid || 0));
+    const isPaid = Boolean(order.isPaid ?? (order.paymentStatus === 'Completed' && dueAmount === 0));
+
+    // If unpaid or due amount > 0, do not mark done; open KojiConfirmModal safeguard
+    if (!isPaid || dueAmount > 0) {
+      setPendingCompletionOrder(order);
+      return;
+    }
+
+    // Only mark done immediately if order is fully paid with zero due balance
+    await markOrderDoneAction(order.id);
+  };
+
+  // Cancel item confirmation prompt
+  const handlePromptCancelItem = (order: Order, itemIndex: number) => {
+    const item = order.items[itemIndex];
+    const cleanToken = order.token.replace(/^#+/, '');
+    const dishSummary = item
+      ? `Token #${cleanToken} • ${item.quantity}x ${item.name} (₹${item.price * item.quantity})`
+      : `Token #${cleanToken} • Selected Item`;
+
+    setConfirmModal({
+      visible: true,
+      variant: 'danger',
+      badgeLabel: 'Cancel Item',
+      title: 'Cancel Dish?',
+      message:
+        'Are you sure you want to cancel this dish? It will be removed from the kitchen prep queue and bill totals will be updated.',
+      highlightText: dishSummary,
+      primaryLabel: 'Cancel Item',
+      cancelLabel: 'Keep Dish',
+      onPrimaryPress: async () => {
+        setConfirmModal(null);
+        await handleConfirmCancelItem(order, itemIndex);
+      },
+      onClose: () => setConfirmModal(null),
+    });
+  };
+
+  // Auto-complete order & trigger unpaid alert when cancelling the last remaining pending dish
+  const handleConfirmCancelItem = async (order: Order, itemIndex: number) => {
     try {
-      const updated = await updateOrderItemStatus(orderId, itemIndex, status);
-      setOrders(updated);
+      const updatedItems = order.items.map((it, idx) => {
+        if (idx === itemIndex) {
+          return { ...it, status: 'cancelled' as ItemStatus };
+        }
+        return it;
+      });
+
+      const rawSubtotal = recalculateOrderTotal(updatedItems);
+      const discount = Math.min(rawSubtotal, Math.max(0, order.discount || 0));
+      const updatedTotalAmount = Math.max(0, rawSubtotal - discount);
+
+      const paidAmount = typeof order.paidAmount === 'number'
+        ? order.paidAmount
+        : (typeof order.amountPaid === 'number'
+          ? order.amountPaid
+          : (order.paymentStatus === 'Completed' ? order.totalAmount : 0));
+
+      const updatedDueAmount = Math.max(0, updatedTotalAmount - paidAmount);
+      const isPaid = Boolean(order.isPaid ?? (order.paymentStatus === 'Completed' && updatedDueAmount === 0));
+
+      const remainingActiveItems = updatedItems.filter((i) => i.status !== 'cancelled');
+
+      // 1. If all items in the order were cancelled, handle as a cancelled/closed order with ₹0 due
+      if (remainingActiveItems.length === 0) {
+        await updateOrderItemStatus(order.id, itemIndex, 'cancelled');
+        const updated = await updateOrderStatus(order.id, 'completed');
+        setOrders(updated);
+        const newMetrics = await getDailyMetrics();
+        setMetrics(newMetrics);
+        onOrdersChanged?.();
+        return;
+      }
+
+      // Check if all remaining non-cancelled items in the order are now 100% done
+      const allRemainingDone = remainingActiveItems.every((i) =>
+        i.status === 'completed' ||
+        (typeof i.servedQuantity === 'number' && i.servedQuantity >= (i.quantity || 1))
+      );
+
+      // 2. If cancelling this item still leaves pending dishes in preparation
+      if (!allRemainingDone) {
+        const updated = await updateOrderItemStatus(order.id, itemIndex, 'cancelled');
+        setOrders(updated);
+        const newMetrics = await getDailyMetrics();
+        setMetrics(newMetrics);
+        onOrdersChanged?.();
+        return;
+      }
+
+      // 3. Cancelling this item leaves ONLY already-completed dishes (entire order is ready to complete)
+      const updatedOrders = await updateOrderItemStatus(order.id, itemIndex, 'cancelled');
+      setOrders(updatedOrders);
       const newMetrics = await getDailyMetrics();
       setMetrics(newMetrics);
       onOrdersChanged?.();
+
+      // If updatedDueAmount === 0 (already paid in full or overpaid), auto-complete order immediately
+      if (isPaid && updatedDueAmount === 0) {
+        await markOrderDoneAction(order.id);
+        return;
+      }
+
+      // If updatedDueAmount > 0 (!isPaid || updatedDueAmount > 0), trigger Payment Pending KojiConfirmModal
+      const refreshedOrder: Order = updatedOrders.find((o) => o.id === order.id) || {
+        ...order,
+        items: updatedItems,
+        totalAmount: updatedTotalAmount,
+        balanceDue: updatedDueAmount,
+        paidAmount,
+        amountPaid: paidAmount,
+        isPaid: false,
+      };
+
+      setPendingDishIncrement(null);
+      setPendingCompletionOrder({
+        ...refreshedOrder,
+        totalAmount: updatedTotalAmount,
+        balanceDue: updatedDueAmount,
+        paidAmount,
+        amountPaid: paidAmount,
+        isPaid: false,
+      });
     } catch (err: any) {
-      Alert.alert('Action Failed', err?.message || 'Could not update item status.');
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'Action Failed',
+        title: 'Action Failed',
+        message: err?.message || 'Could not cancel item.',
+        primaryLabel: 'OK',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
     }
   };
 
   // Item-level progressive serving counter (0/3 -> 1/3 -> 2/3 -> 3/3 Done)
-  const handleIncrementServed = async (orderId: string, itemIndex: number) => {
+  const handleIncrementServed = async (order: Order, itemIndex: number) => {
     try {
-      const updated = await incrementItemServedQuantity(orderId, itemIndex);
+      const targetItem = order.items[itemIndex];
+      if (!targetItem || targetItem.status === 'cancelled') {
+        return;
+      }
+
+      const totalQty = targetItem.quantity || 1;
+      const currentServed = typeof targetItem.servedQuantity === 'number'
+        ? targetItem.servedQuantity
+        : (targetItem.status === 'completed' ? totalQty : 0);
+
+      // If already fully served, nothing to increment
+      if (currentServed >= totalQty) {
+        return;
+      }
+
+      const nextServed = currentServed + 1;
+      const willThisItemBeDone = nextServed >= totalQty;
+
+      // Check whether incrementing this dish will make ALL active (non-cancelled) items 100% done
+      const willAllActiveBeDone =
+        willThisItemBeDone &&
+        order.items.every((item, idx) => {
+          if (item.status === 'cancelled') return true;
+          if (idx === itemIndex) return true;
+          return (
+            item.status === 'completed' ||
+            (typeof item.servedQuantity === 'number' && item.servedQuantity >= (item.quantity || 1))
+          );
+        });
+
+      const paidAmount = typeof order.paidAmount === 'number'
+        ? order.paidAmount
+        : (typeof order.amountPaid === 'number'
+          ? order.amountPaid
+          : (order.paymentStatus === 'Completed' ? order.totalAmount : 0));
+      const dueAmount = Math.max(0, order.totalAmount - paidAmount);
+      const isPaid = Boolean(order.isPaid ?? (order.paymentStatus === 'Completed' && dueAmount === 0));
+
+      // Edge case 1: If this tap finishes the final remaining dish AND (!isPaid || dueAmount > 0)
+      if (willAllActiveBeDone && (!isPaid || dueAmount > 0)) {
+        setPendingDishIncrement({ orderId: order.id, itemIndex });
+        setPendingCompletionOrder(order);
+        return;
+      }
+
+      // Normal path: either not the final dish, or order is already fully paid
+      const updated = await incrementItemServedQuantity(order.id, itemIndex);
       setOrders(updated);
       const newMetrics = await getDailyMetrics();
       setMetrics(newMetrics);
       onOrdersChanged?.();
     } catch (err: any) {
-      Alert.alert('Action Failed', err?.message || 'Could not update served count.');
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'Action Failed',
+        title: 'Action Failed',
+        message: err?.message || 'Could not update served count.',
+        primaryLabel: 'OK',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
     }
   };
 
@@ -181,15 +378,43 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
     amount?: number
   ) => {
     try {
-      const updated = await updateOrderPayment(
+      let finalOrders = await updateOrderPayment(
         orderId,
         method === 'Cash' ? 'Cash' : 'UPI',
         amount
       );
-      setOrders(updated);
+
+      // If completing final dish triggered this payment, increment that dish now
+      if (pendingDishIncrementAfterPayment?.orderId === orderId) {
+        finalOrders = await incrementItemServedQuantity(
+          orderId,
+          pendingDishIncrementAfterPayment.itemIndex
+        );
+        setPendingDishIncrementAfterPayment(null);
+      }
+
+      // Automatically mark order Done upon payment confirmation if triggered from Mark Done alert
+      if (markDoneAfterPaymentId === orderId) {
+        setMarkDoneAfterPaymentId(null);
+        finalOrders = await updateOrderStatus(orderId, 'completed');
+      }
+
+      setOrders(finalOrders);
+      const newMetrics = await getDailyMetrics();
+      setMetrics(newMetrics);
       onOrdersChanged?.();
     } catch (err: any) {
-      Alert.alert('Payment Update Failed', err?.message || 'Could not update payment status.');
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'Payment Failed',
+        title: 'Payment Update Failed',
+        message: err?.message || 'Could not update payment status.',
+        primaryLabel: 'OK',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
     }
   };
 
@@ -201,7 +426,7 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
   ) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
+    } catch { }
 
     const sent = await sendDishReadyNotification(order, cartItem);
     if (sent) {
@@ -213,7 +438,7 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
         );
         setOrders(updatedOrders);
         onOrdersChanged?.();
-      } catch {}
+      } catch { }
     }
   };
 
@@ -221,7 +446,7 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
   const handleNotifyOrderReady = async (order: Order) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
+    } catch { }
 
     const activeItems = order.items.filter(
       (i) => i.status !== 'cancelled' && i.quantity > 0
@@ -230,24 +455,25 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
 
     // If zero unnotified items remain, prompt to resend full notification
     if (unnotifiedItems.length === 0) {
-      Alert.alert(
-        'Order Already Notified',
-        `A pickup alert was already sent for Token ${order.token}. Would you like to send it again?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Send Again',
-            onPress: async () => {
-              const sent = await sendOrderReadyNotification(order);
-              if (sent) {
-                const updatedOrders = await markOrderNotified(order.id);
-                setOrders(updatedOrders);
-                onOrdersChanged?.();
-              }
-            },
-          },
-        ]
-      );
+      setConfirmModal({
+        visible: true,
+        variant: 'forest',
+        badgeLabel: 'Order Ready',
+        title: 'Order Already Notified',
+        message: `A pickup alert was already sent for Token ${order.token}. Would you like to send it again?`,
+        primaryLabel: 'Send Again',
+        cancelLabel: 'Cancel',
+        onPrimaryPress: async () => {
+          setConfirmModal(null);
+          const sent = await sendOrderReadyNotification(order);
+          if (sent) {
+            const updatedOrders = await markOrderNotified(order.id);
+            setOrders(updatedOrders);
+            onOrdersChanged?.();
+          }
+        },
+        onClose: () => setConfirmModal(null),
+      });
       return;
     }
 
@@ -259,7 +485,7 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
           const updatedOrders = await markOrderNotified(order.id);
           setOrders(updatedOrders);
           onOrdersChanged?.();
-        } catch {}
+        } catch { }
       }
       return;
     }
@@ -273,7 +499,7 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
         const updatedOrders = await markSpecificItemsNotified(order.id, unnotifiedIds);
         setOrders(updatedOrders);
         onOrdersChanged?.();
-      } catch {}
+      } catch { }
     }
   };
 
@@ -309,7 +535,17 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
       setMetrics(newMetrics);
       onOrdersChanged?.();
     } catch (err: any) {
-      Alert.alert('Edit Failed', err?.message || 'Could not save order changes.');
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'Edit Failed',
+        title: 'Edit Failed',
+        message: err?.message || 'Could not save order changes.',
+        primaryLabel: 'OK',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
     }
   };
 
@@ -326,12 +562,19 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
     return todayOrders.length;
   }, [todayOrders]);
 
-  // Filtered orders by tab ('active' vs 'all') and search query, strictly within today's shift
+  const unpaidOrdersCount = useMemo(() => {
+    return todayOrders.filter(isOrderUnpaid).length;
+  }, [todayOrders]);
+
+  // Filtered orders by tab ('active' vs 'all' vs 'unpaid') and search query, strictly within today's shift
+  // Sorted in FIFO queue order (ascending chronological / token order: #01 first, then #02, #03...)
   const filteredOrders = useMemo(() => {
     let list = todayOrders;
 
     if (timelineFilter === 'active') {
       list = list.filter((order) => order.status === 'preparing');
+    } else if (timelineFilter === 'unpaid') {
+      list = list.filter(isOrderUnpaid);
     }
 
     if (searchQuery.trim()) {
@@ -347,32 +590,52 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
       });
     }
 
-    return list;
+    // Sort FIFO: ascending chronological / token order (#01 first, then #02, #03...)
+    return [...list].sort((a, b) => {
+      const tokenA = parseInt(a.token.replace(/[^0-9]/g, ''), 10);
+      const tokenB = parseInt(b.token.replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(tokenA) && !isNaN(tokenB) && tokenA !== tokenB) {
+        return tokenA - tokenB;
+      }
+      const timeA = new Date(a.timestamp).getTime();
+      const timeB = new Date(b.timestamp).getTime();
+      return timeA - timeB;
+    });
   }, [todayOrders, timelineFilter, searchQuery]);
 
   const handleClearTodayOrders = () => {
     if (todayOrders.length === 0) {
-      Alert.alert('No Orders', "There are no orders recorded in today's shift.");
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'No Orders',
+        title: 'No Shift Orders',
+        message: "There are no orders recorded in today's shift.",
+        primaryLabel: 'OK',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
       return;
     }
 
-    Alert.alert(
-      "Reset Today's Shift?",
-      "Delete all of today's shift orders? Past days' order history in Admin will not be affected.",
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: "Delete Today's Orders",
-          style: 'destructive',
-          onPress: async () => {
-            await clearTodayOrders();
-            await loadData();
-            onOrdersChanged?.();
-            Alert.alert('Shift Reset', "Today's shift orders have been cleared.");
-          },
-        },
-      ]
-    );
+    setConfirmModal({
+      visible: true,
+      variant: 'danger',
+      badgeLabel: 'Clear Shift',
+      title: "Reset Today's Shift?",
+      message:
+        "Delete all of today's shift orders? Past days' order history in Admin will not be affected.",
+      primaryLabel: "Yes, Clear Shift",
+      cancelLabel: "Keep Orders",
+      onPrimaryPress: async () => {
+        setConfirmModal(null);
+        await clearTodayOrders();
+        await loadData();
+        onOrdersChanged?.();
+      },
+      onClose: () => setConfirmModal(null),
+    });
   };
 
   // Order item card renderer
@@ -383,26 +646,17 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
         onPrint={(ord) => setPrintingOrder(ord)}
         onEdit={(ord) => setEditingOrder(ord)}
         onPayment={(ord) => {
-          const balanceDue =
-            typeof ord.balanceDue === 'number'
-              ? ord.balanceDue
-              : ord.paymentStatus === 'Completed'
-              ? 0
-              : ord.totalAmount;
-          const isPaid = ord.paymentStatus === 'Completed' || balanceDue <= 0;
-          if (!isPaid || balanceDue > 0) {
+          if (isOrderUnpaid(ord)) {
             setPayingOrder(ord);
           }
         }}
-        onMarkDone={(orderId) => handleMarkOrderDone(orderId)}
+        onMarkDone={() => handleMarkOrderDone(item)}
         onNotifyOrderReady={(ord) => handleNotifyOrderReady(ord)}
         onNotifyDishReady={(ord, cartItem, idx) =>
           handleNotifyDishReady(ord, cartItem, idx)
         }
-        onIncrementServed={(orderId, idx) => handleIncrementServed(orderId, idx)}
-        onCancelItem={(orderId, idx) =>
-          handleItemStatusChange(orderId, idx, 'cancelled')
-        }
+        onIncrementServed={(_, idx) => handleIncrementServed(item, idx)}
+        onCancelItem={(_, idx) => handlePromptCancelItem(item, idx)}
       />
     );
   };
@@ -457,7 +711,7 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
         </View>
       </View>
 
-      {/* Top Filter Tabs: "Active Orders" vs "All Orders" (Strictly Current Day) */}
+      {/* Top Filter Tabs: "Active Orders" vs "All Orders" vs "Unpaid" (Strictly Current Day) */}
       <View style={styles.timelineTabsWrapper}>
         <TouchableOpacity
           activeOpacity={0.8}
@@ -475,12 +729,15 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
           ]}
         >
           <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
             style={[
               styles.timelineTabText,
               timelineFilter === 'active' && styles.timelineTabTextActive,
             ]}
           >
-            Active Orders ({activeOrdersCount})
+            Active ({activeOrdersCount})
           </Text>
         </TouchableOpacity>
 
@@ -500,12 +757,51 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
           ]}
         >
           <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
             style={[
               styles.timelineTabText,
               timelineFilter === 'all' && styles.timelineTabTextActive,
             ]}
           >
-            All Orders ({allTodayOrdersCount})
+            All ({allTodayOrdersCount})
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => {
+            try {
+              Haptics.selectionAsync();
+            } catch {
+              // Ignore
+            }
+            setTimelineFilter('unpaid');
+          }}
+          style={[
+            styles.timelineTab,
+            unpaidOrdersCount > 0 && styles.timelineTabUnpaidHighlight,
+            timelineFilter === 'unpaid' &&
+            (unpaidOrdersCount > 0
+              ? styles.timelineTabUnpaidActive
+              : styles.timelineTabActive),
+          ]}
+        >
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
+            style={[
+              styles.timelineTabText,
+              unpaidOrdersCount > 0 && styles.timelineTabTextUnpaidHighlight,
+              timelineFilter === 'unpaid' &&
+              (unpaidOrdersCount > 0
+                ? styles.timelineTabTextUnpaidActive
+                : styles.timelineTabTextActive),
+            ]}
+          >
+            Unpaid ({unpaidOrdersCount})
           </Text>
         </TouchableOpacity>
       </View>
@@ -554,26 +850,32 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
               {searchQuery
                 ? 'No matching orders found'
                 : timelineFilter === 'active'
-                ? 'No active orders in kitchen! 🎉'
-                : 'No orders recorded yet'}
+                  ? 'No active orders in kitchen! 🎉'
+                  : timelineFilter === 'unpaid'
+                    ? 'All shift orders are fully paid! 💳'
+                    : 'No orders recorded yet'}
             </Text>
             <Text style={styles.emptySubtitle}>
               {searchQuery
                 ? 'Try a different search term or clear the filter.'
                 : timelineFilter === 'active'
-                ? 'All taken orders are completed. Tap "All Orders" to view full shift history.'
-                : 'Orders taken at the POS station will appear here in chronological order.'}
+                  ? 'All taken orders are completed. Tap "All Orders" to view full shift history.'
+                  : timelineFilter === 'unpaid'
+                    ? 'There are no pending balances or unpaid tickets in today\'s shift.'
+                    : 'Orders taken at the POS station will appear here in chronological order.'}
             </Text>
 
-            {!searchQuery && timelineFilter === 'active' && todayOrders.length > 0 && (
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => setTimelineFilter('all')}
-                style={styles.emptyActionButton}
-              >
-                <Text style={styles.emptyActionButtonText}>View All Shift Orders</Text>
-              </TouchableOpacity>
-            )}
+            {!searchQuery &&
+              (timelineFilter === 'active' || timelineFilter === 'unpaid') &&
+              todayOrders.length > 0 && (
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setTimelineFilter('all')}
+                  style={styles.emptyActionButton}
+                >
+                  <Text style={styles.emptyActionButtonText}>View All Shift Orders</Text>
+                </TouchableOpacity>
+              )}
 
             {!searchQuery && todayOrders.length === 0 && onNavigateToPOS && (
               <TouchableOpacity
@@ -599,9 +901,14 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
 
       {/* Payment Processing Modal (UPI / Cash) */}
       <PaymentModal
+        key={payingOrder ? `${payingOrder.id}_${payingOrder.balanceDue}_${payingOrder.totalAmount}` : 'closed'}
         visible={!!payingOrder}
         order={payingOrder}
-        onClose={() => setPayingOrder(null)}
+        onClose={() => {
+          setMarkDoneAfterPaymentId(null);
+          setPendingDishIncrementAfterPayment(null);
+          setPayingOrder(null);
+        }}
         onPaymentCompleted={handlePaymentCompleted}
       />
 
@@ -611,6 +918,64 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
         order={printingOrder}
         onClose={() => setPrintingOrder(null)}
       />
+
+      {/* Payment Pending Modal (Rush Safeguard via KojiConfirmModal) */}
+      {!!pendingCompletionOrder && (() => {
+        const ord = pendingCompletionOrder;
+        const cleanToken = ord.token.replace(/^#+/, '');
+        const paidAmount = ord.paidAmount || ord.amountPaid || 0;
+        const dueAmount = Math.max(0, ord.totalAmount - paidAmount);
+        const displayDue = dueAmount > 0 ? dueAmount : ord.totalAmount;
+
+        return (
+          <KojiConfirmModal
+            visible={true}
+            variant="amber"
+            badgeLabel="Payment Pending"
+            title="Payment Pending"
+            message={`Token #${cleanToken} • ${ord.customerName?.trim() || 'Walk-in'} (${ord.orderType || 'Dine-in'}) still has an unpaid balance. Collect payment now or mark done anyway?`}
+            heroLabel="DUE BALANCE"
+            heroAmount={`₹${displayDue}`}
+            primaryLabel="Collect Payment & Complete"
+            onPrimaryPress={() => {
+              const dishInc = pendingDishIncrement;
+              setPendingCompletionOrder(null);
+              setPendingDishIncrement(null);
+              if (dishInc) {
+                setPendingDishIncrementAfterPayment(dishInc);
+              }
+              setMarkDoneAfterPaymentId(ord.id);
+              setPayingOrder(ord);
+            }}
+            secondaryLabel="✓ Mark Done (Keep Unpaid)"
+            onSecondaryPress={async () => {
+              const dishInc = pendingDishIncrement;
+              setPendingCompletionOrder(null);
+              setPendingDishIncrement(null);
+              if (dishInc) {
+                await incrementItemServedQuantity(dishInc.orderId, dishInc.itemIndex);
+              }
+              await markOrderDoneAction(ord.id);
+            }}
+            cancelLabel="Cancel"
+            onClose={() => {
+              setPendingCompletionOrder(null);
+              setPendingDishIncrement(null);
+            }}
+          />
+        );
+      })()}
+
+      {/* Universal Kōji Confirmation / Notice Modal */}
+      {confirmModal && (
+        <KojiConfirmModal
+          {...confirmModal}
+          onClose={() => {
+            confirmModal.onClose?.();
+            setConfirmModal(null);
+          }}
+        />
+      )}
     </View>
   );
 };
@@ -697,15 +1062,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: SPACING.lg,
     paddingVertical: 6,
-    gap: SPACING.sm,
+    gap: 6,
   },
   timelineTab: {
     flex: 1,
     paddingVertical: 9,
+    paddingHorizontal: 4,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFDF7',
+    backgroundColor: COLORS.white,
     borderWidth: 1.5,
     borderColor: COLORS.borderLight,
   },
@@ -718,13 +1084,34 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 2,
   },
+  timelineTabUnpaidHighlight: {
+    backgroundColor: COLORS.amberTint,
+    borderColor: COLORS.amber,
+  },
+  timelineTabUnpaidActive: {
+    backgroundColor: COLORS.amber,
+    borderColor: COLORS.amber,
+    shadowColor: COLORS.amber,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
   timelineTabText: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: COLORS.organic,
     ...FONTS.semibold,
   },
   timelineTabTextActive: {
     color: COLORS.ivory,
+    ...FONTS.bold,
+  },
+  timelineTabTextUnpaidHighlight: {
+    color: COLORS.amber,
+    ...FONTS.bold,
+  },
+  timelineTabTextUnpaidActive: {
+    color: COLORS.white,
     ...FONTS.bold,
   },
   searchContainer: {
@@ -772,7 +1159,7 @@ const styles = StyleSheet.create({
   },
   orderCardActive: {
     borderColor: COLORS.apricot,
-    backgroundColor: '#FFFDF9',
+    backgroundColor: COLORS.white,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -820,9 +1207,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    backgroundColor: '#EDF2EC',
+    backgroundColor: COLORS.sage,
     borderWidth: 1,
-    borderColor: '#C2D4C6',
+    borderColor: COLORS.border,
     paddingHorizontal: 10,
     height: 32,
     borderRadius: 8,
@@ -866,9 +1253,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
     paddingHorizontal: 8,
-    backgroundColor: '#F5F7F3',
+    backgroundColor: COLORS.sage,
     borderWidth: 1,
-    borderColor: '#D4DDD6',
+    borderColor: COLORS.border,
     borderRadius: 8,
   },
   actionBtnEditText: {
@@ -892,25 +1279,25 @@ const styles = StyleSheet.create({
     ...FONTS.bold,
   },
   paymentPillCompleted: {
-    backgroundColor: '#E2EFE6',
-    borderColor: COLORS.forestGreen,
+    backgroundColor: COLORS.successTint,
+    borderColor: COLORS.success,
   },
   paymentPillPending: {
-    backgroundColor: '#FEF6EB',
-    borderColor: '#D78B30',
+    backgroundColor: COLORS.amberTint,
+    borderColor: COLORS.amber,
   },
   paymentPillPartial: {
-    backgroundColor: '#FEF6EB',
-    borderColor: '#D78B30',
+    backgroundColor: COLORS.amberTint,
+    borderColor: COLORS.amber,
   },
   paymentPillTextCompleted: {
-    color: COLORS.forestGreen,
+    color: COLORS.forest,
   },
   paymentPillTextPending: {
-    color: '#B86815',
+    color: COLORS.amber,
   },
   paymentPillTextPartial: {
-    color: '#B86815',
+    color: COLORS.amber,
   },
   actionBtnDone: {
     height: 36,
@@ -941,14 +1328,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
     paddingHorizontal: 8,
-    backgroundColor: '#E8F5E9',
-    borderColor: '#C8E6C9',
+    backgroundColor: COLORS.successTint,
+    borderColor: COLORS.success,
     borderWidth: 1,
     borderRadius: 8,
   },
   actionBtnCompletedText: {
     fontSize: 12,
-    color: COLORS.veg,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   customerRow: {
@@ -971,25 +1358,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#E8F5E9',
+    backgroundColor: COLORS.white,
     borderWidth: 1,
-    borderColor: '#A5D6A7',
+    borderColor: COLORS.success,
     paddingHorizontal: 8,
     height: 24,
     borderRadius: 12,
   },
   notifyOrderPillNotified: {
-    backgroundColor: '#DCF8C6',
-    borderColor: '#25D366',
+    backgroundColor: COLORS.successTint,
+    borderColor: COLORS.success,
   },
   notifyOrderPillText: {
     fontSize: 10.5,
-    color: '#128C7E',
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   notifyOrderPillTextNotified: {
     fontSize: 10.5,
-    color: '#25D366',
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   customerDetail: {
@@ -1018,8 +1405,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.borderLight,
   },
   addonPill: {
-    backgroundColor: '#FAF2DE',
-    borderColor: COLORS.apricot,
+    backgroundColor: COLORS.amberTint,
+    borderColor: COLORS.amber,
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 10,
@@ -1079,16 +1466,16 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 6,
-    backgroundColor: '#EDF2EC',
+    backgroundColor: COLORS.successTint,
     borderWidth: 1,
-    borderColor: '#C2D4C6',
+    borderColor: COLORS.border,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
   itemWhatsappBtnNotified: {
-    backgroundColor: '#DCF8C6',
-    borderColor: '#25D366',
+    backgroundColor: COLORS.successTint,
+    borderColor: COLORS.success,
   },
   itemProgressBtn: {
     height: 24,
@@ -1096,8 +1483,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
-    backgroundColor: '#E8F5E9',
-    borderColor: '#A5D6A7',
+    backgroundColor: COLORS.white,
+    borderColor: COLORS.border,
     borderWidth: 1,
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -1105,7 +1492,7 @@ const styles = StyleSheet.create({
   },
   itemProgressText: {
     fontSize: 10.5,
-    color: COLORS.veg,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   itemCancelActionBtn: {
@@ -1114,8 +1501,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
-    backgroundColor: '#FFEBEE',
-    borderColor: '#FFCDD2',
+    backgroundColor: COLORS.dangerTint,
+    borderColor: COLORS.danger,
     borderWidth: 1,
     paddingHorizontal: 5,
     paddingVertical: 2,
@@ -1132,8 +1519,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
-    backgroundColor: '#E8F5E9',
-    borderColor: '#C8E6C9',
+    backgroundColor: COLORS.successTint,
+    borderColor: COLORS.success,
     borderWidth: 1,
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -1141,7 +1528,7 @@ const styles = StyleSheet.create({
   },
   itemDoneBadgeText: {
     fontSize: 10.5,
-    color: COLORS.veg,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   itemCancelledBadge: {
@@ -1149,8 +1536,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFEBEE',
-    borderColor: '#FFCDD2',
+    backgroundColor: COLORS.dangerTint,
+    borderColor: COLORS.danger,
     borderWidth: 1,
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -1164,13 +1551,13 @@ const styles = StyleSheet.create({
   notesCallout: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#FAF3E3',
+    backgroundColor: COLORS.amberTint,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
     marginTop: SPACING.sm,
     borderWidth: 1,
-    borderColor: '#E8D2AA',
+    borderColor: COLORS.amber,
   },
   noteIcon: {
     marginRight: 6,

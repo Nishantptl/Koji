@@ -42,7 +42,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const [activeMode, setActiveMode] = useState<'select' | 'upi_qr' | null>(null);
   const [upiConfig, setUpiConfig] = useState<UpiConfig>({ upiId: '', merchantName: 'Kōji' });
 
-  const defaultMode = initialViewMode || (order?.paymentMethod === 'UPI' ? 'upi_qr' : 'select');
+  // Always open the 2-option Record Payment modal ('select') first
+  const defaultMode = initialViewMode || 'select';
   const viewMode = activeMode || defaultMode;
 
   useEffect(() => {
@@ -153,7 +154,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                       style={styles.closeBtn}
                       accessibilityLabel="Close payment selector"
                     >
-                      <X size={18} color={COLORS.forestGreen} />
+                      <X size={18} color={COLORS.forest} />
                     </TouchableOpacity>
                   </View>
 
@@ -179,7 +180,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                       style={[styles.payOptionBtn, styles.upiOptionBtn]}
                     >
                       <View style={styles.iconCircleUpi}>
-                        <Smartphone size={22} color={COLORS.forestGreen} strokeWidth={2.4} />
+                        <Smartphone size={22} color={COLORS.forest} strokeWidth={2.4} />
                       </View>
                       <View style={styles.payOptionContent}>
                         <Text style={styles.payOptionTitle}>📱 UPI</Text>
@@ -187,7 +188,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                           Dynamic QR code with ₹{amountToCollect.toLocaleString('en-IN')} auto-filled
                         </Text>
                       </View>
-                      <QrIcon size={18} color={COLORS.forestGreen} strokeWidth={2.2} />
+                      <QrIcon size={18} color={COLORS.forest} strokeWidth={2.2} />
                     </TouchableOpacity>
 
                     {/* 2. Paid via Cash */}
@@ -197,7 +198,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                       style={[styles.payOptionBtn, styles.cashOptionBtn]}
                     >
                       <View style={styles.iconCircleCash}>
-                        <Banknote size={22} color={COLORS.apricot} strokeWidth={2.4} />
+                        <Banknote size={22} color={COLORS.amber} strokeWidth={2.4} />
                       </View>
                       <View style={styles.payOptionContent}>
                         <Text style={styles.payOptionTitle}>💵 Cash</Text>
@@ -205,7 +206,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                           Received ₹{amountToCollect.toLocaleString('en-IN')} physical cash notes at counter
                         </Text>
                       </View>
-                      <CheckCircle2 size={18} color={COLORS.apricot} strokeWidth={2.4} />
+                      <CheckCircle2 size={18} color={COLORS.amber} strokeWidth={2.4} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -226,7 +227,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                         style={styles.backBtn}
                         accessibilityLabel="Back to payment choices"
                       >
-                        <ArrowLeft size={18} color={COLORS.forestGreen} />
+                        <ArrowLeft size={18} color={COLORS.forest} />
                       </TouchableOpacity>
                       <TokenBadge token={order.token} variant="apricot" size="sm" />
                       <View>
@@ -241,7 +242,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                       style={styles.closeBtn}
                       accessibilityLabel="Close payment selector"
                     >
-                      <X size={18} color={COLORS.forestGreen} />
+                      <X size={18} color={COLORS.forest} />
                     </TouchableOpacity>
                   </View>
 
@@ -262,8 +263,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                           <QRCode
                             value={upiUri}
                             size={180}
-                            color={COLORS.organic}
-                            backgroundColor="#FFFFFF"
+                            color={COLORS.forest}
+                            backgroundColor={COLORS.white}
                           />
                         </View>
                         <Text style={styles.qrInstructionText}>
@@ -275,7 +276,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                       </View>
                     ) : (
                       <View style={styles.noUpiWarningBox}>
-                        <AlertTriangle size={28} color={COLORS.apricot} />
+                        <AlertTriangle size={28} color={COLORS.amber} />
                         <Text style={styles.noUpiWarningTitle}>No UPI ID Configured</Text>
                         <Text style={styles.noUpiWarningText}>
                           Please configure your Merchant UPI ID (VPA) in the Admin tab under &ldquo;UPI &amp; QR Payment Setup&rdquo; to generate dynamic QR codes.
@@ -289,7 +290,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                       onPress={handleConfirmUpi}
                       style={styles.confirmUpiBtn}
                     >
-                      <CheckCircle2 size={18} color={COLORS.cream} strokeWidth={2.2} />
+                      <CheckCircle2 size={18} color={COLORS.white} strokeWidth={2.2} />
                       <Text style={styles.confirmUpiBtnText}>
                         {upiId ? '✓ Confirm UPI Received' : '✓ Confirm UPI Received Manually'}
                       </Text>
@@ -319,9 +320,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderRadius: 22,
     borderWidth: 1.5,
-    borderColor: COLORS.forestGreen,
+    borderColor: COLORS.forest,
     padding: SPACING.lg,
-    shadowColor: COLORS.forestGreen,
+    shadowColor: COLORS.forest,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.2,
     shadowRadius: 14,
@@ -333,7 +334,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingBottom: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight,
+    borderBottomColor: COLORS.border,
     marginBottom: SPACING.sm,
   },
   headerLeft: {
@@ -344,19 +345,19 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 16,
-    color: COLORS.forestGreen,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   headerSubtitle: {
     fontSize: 11.5,
-    color: COLORS.natural,
+    color: COLORS.slate,
     ...FONTS.medium,
   },
   closeBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#EDF2EC',
+    backgroundColor: COLORS.sage,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -364,15 +365,15 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: '#EDF2EC',
+    backgroundColor: COLORS.sage,
     justifyContent: 'center',
     alignItems: 'center',
   },
   amountBox: {
-    backgroundColor: '#FFFDF9',
+    backgroundColor: COLORS.white,
     borderRadius: 14,
     borderWidth: 1.2,
-    borderColor: '#F2DFCD',
+    borderColor: COLORS.amber,
     paddingVertical: 12,
     paddingHorizontal: 16,
     alignItems: 'center',
@@ -380,19 +381,19 @@ const styles = StyleSheet.create({
   },
   amountLabel: {
     fontSize: 10,
-    color: COLORS.apricot,
+    color: COLORS.amber,
     ...FONTS.bold,
     letterSpacing: 0.8,
   },
   amountValue: {
     fontSize: 28,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.heavy,
     marginVertical: 2,
   },
   breakdownText: {
     fontSize: 11,
-    color: COLORS.natural,
+    color: COLORS.slate,
     ...FONTS.medium,
     marginTop: 2,
   },
@@ -409,18 +410,18 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   upiOptionBtn: {
-    backgroundColor: '#F3FAF5',
-    borderColor: '#C2E5CD',
+    backgroundColor: COLORS.successTint,
+    borderColor: COLORS.success,
   },
   cashOptionBtn: {
-    backgroundColor: '#FFFDF7',
-    borderColor: '#F3DFC8',
+    backgroundColor: COLORS.white,
+    borderColor: COLORS.amber,
   },
   iconCircleUpi: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#E0F3E6',
+    backgroundColor: COLORS.successTint,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -428,7 +429,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#FDF1E2',
+    backgroundColor: COLORS.amberTint,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -437,12 +438,12 @@ const styles = StyleSheet.create({
   },
   payOptionTitle: {
     fontSize: 14.5,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   payOptionSubtitle: {
     fontSize: 11,
-    color: COLORS.natural,
+    color: COLORS.slate,
     ...FONTS.regular,
     marginTop: 2,
   },
@@ -452,9 +453,9 @@ const styles = StyleSheet.create({
   },
   qrAmountBox: {
     alignItems: 'center',
-    backgroundColor: '#FFFDF7',
+    backgroundColor: COLORS.white,
     borderWidth: 1,
-    borderColor: '#F1E6D6',
+    borderColor: COLORS.border,
     borderRadius: 12,
     paddingVertical: 8,
     paddingHorizontal: 16,
@@ -463,19 +464,19 @@ const styles = StyleSheet.create({
   },
   qrAmountLabel: {
     fontSize: 9.5,
-    color: COLORS.apricot,
+    color: COLORS.amber,
     ...FONTS.bold,
     letterSpacing: 0.8,
   },
   qrAmountValue: {
     fontSize: 26,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.heavy,
     marginVertical: 1,
   },
   qrAmountSub: {
     fontSize: 11,
-    color: COLORS.natural,
+    color: COLORS.slate,
     ...FONTS.medium,
   },
   qrContainerWrapper: {
@@ -484,10 +485,10 @@ const styles = StyleSheet.create({
   },
   qrContainer: {
     padding: 14,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: COLORS.white,
     borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: COLORS.forestGreen,
+    borderColor: COLORS.forest,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
@@ -497,24 +498,24 @@ const styles = StyleSheet.create({
   },
   qrInstructionText: {
     fontSize: 12,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.bold,
     textAlign: 'center',
     marginTop: 2,
   },
   qrInstructionSub: {
     fontSize: 10.5,
-    color: COLORS.natural,
+    color: COLORS.slate,
     ...FONTS.regular,
     textAlign: 'center',
     marginTop: 2,
     paddingHorizontal: 12,
   },
   noUpiWarningBox: {
-    backgroundColor: '#FFF9F2',
+    backgroundColor: COLORS.amberTint,
     borderRadius: 12,
     borderWidth: 1.2,
-    borderColor: '#F2D7B8',
+    borderColor: COLORS.amber,
     padding: 14,
     alignItems: 'center',
     marginVertical: 12,
@@ -522,18 +523,18 @@ const styles = StyleSheet.create({
   },
   noUpiWarningTitle: {
     fontSize: 14,
-    color: COLORS.apricot,
+    color: COLORS.amber,
     ...FONTS.bold,
   },
   noUpiWarningText: {
     fontSize: 11.5,
-    color: COLORS.natural,
+    color: COLORS.slate,
     ...FONTS.regular,
     textAlign: 'center',
     lineHeight: 16,
   },
   confirmUpiBtn: {
-    backgroundColor: COLORS.organic,
+    backgroundColor: COLORS.forest,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -543,7 +544,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     width: '100%',
     marginTop: 14,
-    shadowColor: COLORS.organic,
+    shadowColor: COLORS.forest,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.25,
     shadowRadius: 5,
@@ -551,7 +552,7 @@ const styles = StyleSheet.create({
   },
   confirmUpiBtnText: {
     fontSize: 14,
-    color: COLORS.cream,
+    color: COLORS.white,
     ...FONTS.bold,
   },
 });

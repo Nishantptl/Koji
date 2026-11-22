@@ -86,17 +86,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   activePill: {
-    backgroundColor: COLORS.organic,      // #3F422E background
-    borderColor: COLORS.organic,
-    shadowColor: COLORS.organic,
+    backgroundColor: COLORS.forest,
+    borderColor: COLORS.forest,
+    shadowColor: COLORS.forest,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.18,
     shadowRadius: 3,
     elevation: 2,
   },
   inactivePill: {
-    backgroundColor: '#FFFDF7',
-    borderColor: COLORS.borderLight,       // Natural border
+    backgroundColor: COLORS.white,
+    borderColor: COLORS.border,
   },
   pillText: {
     fontSize: 13,
@@ -104,11 +104,11 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   activePillText: {
-    color: COLORS.ivory,                  // #F5E6C5 text
+    color: COLORS.white,
     ...FONTS.bold,
   },
   inactivePillText: {
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.medium,
   },
 });

@@ -96,7 +96,7 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({
             )}
           </View>
 
-          {/* Row 2: Dish Description (#8C9E91, 2 lines max) */}
+          {/* Row 2: Dish Description (COLORS.slate, 2 lines max) */}
           {item.description ? (
             <Text
               style={styles.description}
@@ -109,7 +109,7 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({
 
           {/* Row 3: Bottom Action Row (justifyContent: 'space-between', alignItems: 'center') */}
           <View style={styles.bottomRow}>
-            {/* Price on the left in bold #3F422E */}
+            {/* Price on the left in bold COLORS.forest */}
             <View style={styles.priceContainer}>
               <Text style={styles.priceText}>₹{item.price}</Text>
             </View>
@@ -129,7 +129,7 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({
                     onPress={handleMinus}
                     activeOpacity={0.7}
                   >
-                    <Minus size={14} color={COLORS.ivory} strokeWidth={2.6} />
+                    <Minus size={14} color={COLORS.white} strokeWidth={2.6} />
                   </TouchableOpacity>
 
                   <Text style={styles.stepperQty}>{quantity}</Text>
@@ -140,7 +140,7 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({
                     onPress={handlePlus}
                     activeOpacity={0.7}
                   >
-                    <Plus size={14} color={COLORS.ivory} strokeWidth={2.6} />
+                    <Plus size={14} color={COLORS.white} strokeWidth={2.6} />
                   </TouchableOpacity>
                 </View>
               ) : (
@@ -149,7 +149,7 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({
                   onPress={handlePlus}
                   style={styles.addButton}
                 >
-                  <Plus size={14} color={COLORS.organic} strokeWidth={2.6} />
+                  <Plus size={14} color={COLORS.forest} strokeWidth={2.6} />
                   <Text style={styles.addButtonText}>ADD</Text>
                 </TouchableOpacity>
               )}
@@ -163,28 +163,28 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: COLORS.white,
     borderRadius: 14,
     padding: SPACING.md,
     marginHorizontal: SPACING.lg,
     marginBottom: SPACING.md,
     borderWidth: 1.5,
-    borderColor: COLORS.borderLight,
-    shadowColor: COLORS.organic,
+    borderColor: COLORS.border,
+    shadowColor: COLORS.forest,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
   },
   cardActive: {
-    borderColor: COLORS.apricot,
-    backgroundColor: '#FFFDF5',
+    borderColor: COLORS.amber,
+    backgroundColor: COLORS.amberTint,
     shadowOpacity: 0.1,
     elevation: 3,
   },
   cardDisabled: {
     opacity: 0.65,
-    backgroundColor: '#F7F4EC',
+    backgroundColor: COLORS.sage,
   },
   contentRow: {
     flexDirection: 'row',
@@ -195,10 +195,10 @@ const styles = StyleSheet.create({
     height: 76,
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: COLORS.surfaceMuted,
+    backgroundColor: COLORS.sage,
     marginRight: SPACING.md,
     borderWidth: 1,
-    borderColor: COLORS.borderLight,
+    borderColor: COLORS.border,
     position: 'relative',
   },
   thumbnail: {
@@ -210,16 +210,16 @@ const styles = StyleSheet.create({
     height: 76,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.surfaceMuted,
+    backgroundColor: COLORS.sage,
   },
   soldOutOverlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(63, 66, 46, 0.75)',
+    backgroundColor: 'rgba(13, 56, 30, 0.75)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   soldOutOverlayText: {
-    color: COLORS.ivory,
+    color: COLORS.white,
     fontSize: 9,
     ...FONTS.heavy,
     letterSpacing: 0.5,
@@ -244,28 +244,28 @@ const styles = StyleSheet.create({
   },
   name: {
     fontSize: 14,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.bold,
     lineHeight: 18,
     flex: 1,
   },
   textDisabled: {
-    color: COLORS.textSecondary,
+    color: COLORS.slate,
   },
   soldOutBadge: {
-    backgroundColor: '#EEDCBA',
+    backgroundColor: COLORS.amberTint,
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 4,
   },
   soldOutBadgeText: {
     fontSize: 9,
-    color: COLORS.organic,
+    color: COLORS.amber,
     ...FONTS.bold,
   },
   description: {
     fontSize: 12,
-    color: '#8C9E91', // Muted sage slate
+    color: COLORS.slate,
     ...FONTS.regular,
     lineHeight: 16,
     marginBottom: 6,
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
   },
   priceText: {
     fontSize: 16,
-    color: COLORS.organic,               // bold #3F422E
+    color: COLORS.forest,
     ...FONTS.heavy,
   },
   actionContainer: {
@@ -296,12 +296,12 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 18,
     borderWidth: 1.5,
-    borderColor: COLORS.organic,
-    backgroundColor: COLORS.ivory,
+    borderColor: COLORS.forest,
+    backgroundColor: COLORS.white,
   },
   addButtonText: {
     fontSize: 12,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.heavy,
     letterSpacing: 0.5,
   },
@@ -313,24 +313,24 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: COLORS.borderLight,
-    backgroundColor: COLORS.surfaceMuted,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.sage,
   },
   soldOutButtonText: {
     fontSize: 10,
-    color: COLORS.textMuted,
+    color: COLORS.slate,
     ...FONTS.heavy,
     letterSpacing: 0.3,
   },
   stepperPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.organic,
+    backgroundColor: COLORS.forest,
     borderRadius: 18,
     paddingHorizontal: 6,
     paddingVertical: 5,
     gap: 7,
-    shadowColor: COLORS.organic,
+    shadowColor: COLORS.forest,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 3,
@@ -343,7 +343,7 @@ const styles = StyleSheet.create({
   },
   stepperQty: {
     fontSize: 13,
-    color: COLORS.ivory,
+    color: COLORS.white,
     ...FONTS.heavy,
     minWidth: 16,
     textAlign: 'center',

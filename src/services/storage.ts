@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import * as Haptics from 'expo-haptics';
+import * as Contacts from 'expo-contacts/legacy';
 import {
   Order,
   OrderInput,
@@ -246,6 +247,68 @@ export const recalculateOrderTotal = (items: CartItem[]): number => {
     .reduce((sum, item) => sum + item.price * item.quantity, 0);
 };
 
+/**
+ * Calculates the current outstanding balance due for an order.
+ */
+export const getOrderBalanceDue = (order: Order): number => {
+  if (typeof order.balanceDue === 'number') {
+    return Math.max(0, order.balanceDue);
+  }
+  const paid = typeof order.paidAmount === 'number'
+    ? order.paidAmount
+    : (typeof order.amountPaid === 'number'
+      ? order.amountPaid
+      : (order.paymentStatus === 'Completed' ? order.totalAmount : 0));
+  return Math.max(0, order.totalAmount - paid);
+};
+
+/**
+ * Calculates the amount paid so far for an order.
+ */
+export const getOrderAmountPaid = (order: Order): number => {
+  if (typeof order.paidAmount === 'number') {
+    return Math.max(0, order.paidAmount);
+  }
+  if (typeof order.amountPaid === 'number') {
+    return Math.max(0, order.amountPaid);
+  }
+  return order.paymentStatus === 'Completed' ? order.totalAmount : 0;
+};
+
+/**
+ * Returns true if an order is fully settled/paid (no outstanding balance).
+ */
+export const isOrderFullyPaid = (order: Order): boolean => {
+  const paid = getOrderAmountPaid(order);
+  const due = Math.max(0, order.totalAmount - paid);
+  const isPaid = typeof order.isPaid === 'boolean'
+    ? order.isPaid
+    : (order.paymentStatus === 'Completed' && due === 0);
+  return isPaid && due === 0;
+};
+
+/**
+ * Returns true if an order is unpaid or has a pending due balance.
+ */
+export const isOrderUnpaid = (order: Order): boolean => {
+  return !isOrderFullyPaid(order);
+};
+
+/**
+ * Returns the effective due amount for collection display.
+ */
+export const getOrderDueAmount = (order: Order): number => {
+  const balanceDue = getOrderBalanceDue(order);
+  return balanceDue > 0 ? balanceDue : order.totalAmount;
+};
+
+/**
+ * Formats an INR amount with commas (e.g. ₹1,299).
+ */
+export const formatCurrency = (amount: number): string => {
+  return `₹${(amount || 0).toLocaleString('en-IN')}`;
+};
+
 // ==========================================
 // MENU PERSISTENCE (ADMIN & POS)
 // ==========================================
@@ -267,10 +330,30 @@ export const getMenuItems = async (): Promise<MenuItem[]> => {
     }
     const parsed = JSON.parse(json);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed.map((item: any) => ({
+      const existingItems: MenuItem[] = parsed.map((item: any) => ({
         ...item,
         isAvailable: item.isAvailable ?? true,
       }));
+
+      // Automatically merge missing default seed items (e.g. Diet Coke, Water Bottle)
+      // without overwriting existing customized dishes, prices, or availability
+      const existingIds = new Set(existingItems.map((i) => i.id));
+      const existingNames = new Set(existingItems.map((i) => i.name.toLowerCase().trim()));
+
+      const missingSeedItems = (defaultMenuSeed as MenuItem[])
+        .filter((seed) => !existingIds.has(seed.id) && !existingNames.has(seed.name.toLowerCase().trim()))
+        .map((m) => ({
+          ...m,
+          isAvailable: m.isAvailable ?? true,
+        }));
+
+      if (missingSeedItems.length > 0) {
+        const merged = [...existingItems, ...missingSeedItems];
+        await AsyncStorage.setItem(MENU_STORAGE_KEY, JSON.stringify(merged));
+        return merged;
+      }
+
+      return existingItems;
     }
     return defaultMenuSeed as MenuItem[];
   } catch (error) {
@@ -282,6 +365,15 @@ export const getMenuItems = async (): Promise<MenuItem[]> => {
 /**
  * Adds a new dish to the local menu.
  */
+export const resetMenuToDefault = async (): Promise<MenuItem[]> => {
+  const seed: MenuItem[] = (defaultMenuSeed as MenuItem[]).map((m) => ({
+    ...m,
+    isAvailable: m.isAvailable ?? true,
+  }));
+  await AsyncStorage.setItem(MENU_STORAGE_KEY, JSON.stringify(seed));
+  return seed;
+};
+
 export const addMenuItem = async (
   dish: Omit<MenuItem, 'id'>
 ): Promise<MenuItem> => {
@@ -406,6 +498,24 @@ const normalizeOrder = (order: any): Order => {
     ? order.totalAmount
     : Math.max(0, subtotal - discount);
 
+  const rawAmountPaid = typeof order.paidAmount === 'number'
+    ? order.paidAmount
+    : (typeof order.amountPaid === 'number'
+      ? order.amountPaid
+      : (order.paymentStatus === 'Completed' ? totalAmount : 0));
+
+  const amountPaid = Math.max(0, rawAmountPaid);
+  const balanceDue = typeof order.balanceDue === 'number'
+    ? Math.max(0, order.balanceDue)
+    : Math.max(0, totalAmount - amountPaid);
+
+  const isPaid = typeof order.isPaid === 'boolean'
+    ? order.isPaid
+    : (order.paymentStatus === 'Completed' && balanceDue === 0);
+
+  const paymentStatus: PaymentStatus =
+    order.paymentStatus || (balanceDue === 0 && amountPaid > 0 ? 'Completed' : 'Pending');
+
   return {
     ...order,
     items: normalizedItems,
@@ -416,10 +526,14 @@ const normalizeOrder = (order: any): Order => {
         : order.orderType || 'Dine-in',
     discountPercent: typeof order.discountPercent === 'number' ? order.discountPercent : undefined,
     status: order.status === 'completed' ? 'completed' : 'preparing',
-    paymentStatus: order.paymentStatus || (order.paymentMethod ? 'Completed' : 'Pending'),
+    paymentStatus,
     subtotal,
     discount,
     totalAmount,
+    amountPaid,
+    paidAmount: amountPaid,
+    balanceDue,
+    isPaid,
   };
 };
 
@@ -461,11 +575,11 @@ export const saveOrder = async (orderData: OrderInput): Promise<Order> => {
     ? orderData.totalAmount
     : Math.max(0, subtotal - discount);
 
-  const isPaid = orderData.paymentStatus === 'Completed';
-  const amountPaid = isPaid ? totalAmount : (orderData.amountPaid ?? 0);
+  const isPaid = orderData.paymentStatus === 'Completed' || orderData.isPaid === true;
+  const amountPaid = isPaid ? totalAmount : (orderData.amountPaid ?? orderData.paidAmount ?? 0);
   const balanceDue = Math.max(0, totalAmount - amountPaid);
   const paymentStatus: PaymentStatus =
-    balanceDue <= 0
+    balanceDue <= 0 && isPaid
       ? 'Completed'
       : amountPaid > 0
       ? 'Partial'
@@ -497,7 +611,9 @@ export const saveOrder = async (orderData: OrderInput): Promise<Order> => {
     items: itemsWithStatus,
     totalAmount,
     amountPaid,
+    paidAmount: amountPaid,
     balanceDue,
+    isPaid: paymentStatus === 'Completed' && balanceDue === 0,
     id: `koji_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     token,
     timestamp: new Date().toISOString(),
@@ -597,16 +713,19 @@ export const updateOrderItemStatus = async (
       const allCompleted =
         nonCancelled.length > 0 &&
         nonCancelled.every((i) => i.status === 'completed');
+      const shouldAutoComplete = allCompleted && balanceDue <= 0;
 
       return {
         ...order,
         items: newItems,
         totalAmount: newTotal,
         amountPaid: currentPaid,
+        paidAmount: currentPaid,
         balanceDue,
+        isPaid: newPaymentStatus === 'Completed' && balanceDue === 0,
         paymentStatus: newPaymentStatus,
-        status: allCompleted ? 'completed' : order.status,
-        completedAt: allCompleted
+        status: shouldAutoComplete ? 'completed' : order.status,
+        completedAt: shouldAutoComplete
           ? order.completedAt || new Date().toISOString()
           : order.completedAt,
       };
@@ -677,16 +796,19 @@ export const incrementItemServedQuantity = async (
       const allCompleted =
         nonCancelled.length > 0 &&
         nonCancelled.every((i) => i.status === 'completed');
+      const shouldAutoComplete = allCompleted && balanceDue <= 0;
 
       return {
         ...order,
         items: newItems,
         totalAmount: newTotal,
         amountPaid: currentPaid,
+        paidAmount: currentPaid,
         balanceDue,
+        isPaid: newPaymentStatus === 'Completed' && balanceDue === 0,
         paymentStatus: newPaymentStatus,
-        status: allCompleted ? 'completed' : order.status,
-        completedAt: allCompleted
+        status: shouldAutoComplete ? 'completed' : order.status,
+        completedAt: shouldAutoComplete
           ? order.completedAt || new Date().toISOString()
           : order.completedAt,
       };
@@ -764,7 +886,9 @@ export const updateOrderPayment = async (
       return {
         ...order,
         amountPaid: totalPaid,
+        paidAmount: totalPaid,
         balanceDue,
+        isPaid: balanceDue <= 0,
         paymentStatus,
         paymentMethod: combinedMethod,
         payments: updatedPayments,
@@ -1698,5 +1822,215 @@ export const exportOrdersReport = async (
  * Backward compatibility alias for exportOrdersReport
  */
 export const exportOrdersReportCsv = exportOrdersReport;
+
+/**
+ * Deduplicated Customer Directory & vCard 3.0 (.vcf) Export
+ */
+export interface CustomerRecord {
+  phone: string;       // Clean 10-digit mobile number
+  name: string;        // Latest non-empty customer name
+  visitCount: number;  // Total orders placed
+  lastVisit: string;   // Most recent order ISO timestamp
+}
+
+export const HOLIDAY_ANNOUNCEMENT_MSG =
+  "Hey there! 🍣 Kōji is taking a short break and will be closed Today.\nWe’ll be back rolling fresh sushi and serving your favorites from tomorrow at our usual evening hours. See you soon!";
+
+export const extractUniqueCustomers = (ordersList: Order[]): CustomerRecord[] => {
+  const customerMap = new Map<string, CustomerRecord>();
+
+  // Sort chronologically so later orders update customer name & last visit
+  const sortedOrders = [...ordersList].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+
+  for (const ord of sortedOrders) {
+    if (!ord.customerPhone) continue;
+    const cleanPhone = ord.customerPhone.replace(/\D/g, '').slice(-10);
+    if (!cleanPhone || cleanPhone.length < 10) continue;
+
+    const trimmedName = ord.customerName?.trim() || '';
+    const existing = customerMap.get(cleanPhone);
+
+    if (existing) {
+      existing.visitCount += 1;
+      existing.lastVisit = ord.timestamp;
+      if (trimmedName) {
+        existing.name = trimmedName;
+      }
+    } else {
+      customerMap.set(cleanPhone, {
+        phone: cleanPhone,
+        name: trimmedName || 'Guest',
+        visitCount: 1,
+        lastVisit: ord.timestamp,
+      });
+    }
+  }
+
+  // Return sorted by visitCount descending
+  return Array.from(customerMap.values()).sort(
+    (a, b) =>
+      b.visitCount - a.visitCount ||
+      new Date(b.lastVisit).getTime() - new Date(a.lastVisit).getTime()
+  );
+};
+
+export const exportCustomerContactsVcf = async (
+  customers: CustomerRecord[]
+): Promise<void> => {
+  if (customers.length === 0) {
+    throw new Error('No customers found in order history to export.');
+  }
+
+  const vcardEntries = customers.map((c) => {
+    const formattedPhone = c.phone.startsWith('+91')
+      ? c.phone
+      : `+91${c.phone}`;
+    const displayName =
+      c.name && c.name !== 'Guest'
+        ? `Koji - ${c.name}`
+        : `Koji - Customer ${c.phone.slice(-4)}`;
+    return [
+      'BEGIN:VCARD',
+      'VERSION:3.0',
+      `FN:${displayName}`,
+      `TEL;TYPE=CELL:${formattedPhone}`,
+      'END:VCARD',
+    ].join('\n');
+  });
+
+  const vcfContent = vcardEntries.join('\n\n') + '\n';
+  const now = new Date();
+  const dateStamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+  const fileName = `koji_customers_${dateStamp}.vcf`;
+
+  const cacheDir = FileSystem.cacheDirectory || '';
+  const fileUri = `${cacheDir}${fileName}`;
+
+  await FileSystem.writeAsStringAsync(fileUri, vcfContent, {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
+
+  const isAvailable = await Sharing.isAvailableAsync();
+  if (!isAvailable) {
+    throw new Error('Sharing is not available on this device');
+  }
+
+  await Sharing.shareAsync(fileUri, {
+    mimeType: 'text/vcard',
+    dialogTitle: 'Export Kōji Customer Contacts (.vcf)',
+    UTI: 'public.vcard',
+  });
+};
+
+export interface ContactSyncResult {
+  addedCount: number;
+  skippedCount: number;
+  totalUnique: number;
+}
+
+export const syncCustomerContactsToPhone = async (
+  customers: CustomerRecord[]
+): Promise<ContactSyncResult> => {
+  if (customers.length === 0) {
+    return { addedCount: 0, skippedCount: 0, totalUnique: 0 };
+  }
+
+  const { status } = await Contacts.requestPermissionsAsync();
+  if (status !== 'granted') {
+    throw new Error('Contacts permission denied. Please grant Contacts permission in device settings.');
+  }
+
+  const { data: existingContacts } = await Contacts.getContactsAsync({
+    fields: [Contacts.Fields.PhoneNumbers],
+  });
+
+  const existingNumbersSet = new Set<string>();
+  if (existingContacts && existingContacts.length > 0) {
+    for (const c of existingContacts) {
+      if (c.phoneNumbers) {
+        for (const p of c.phoneNumbers) {
+          if (p.number) {
+            const clean = p.number.replace(/\D/g, '').slice(-10);
+            if (clean.length === 10) {
+              existingNumbersSet.add(clean);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  let addedCount = 0;
+  let skippedCount = 0;
+
+  for (const cust of customers) {
+    const cleanPhone = cust.phone.replace(/\D/g, '').slice(-10);
+    if (!cleanPhone || cleanPhone.length !== 10) continue;
+
+    if (existingNumbersSet.has(cleanPhone)) {
+      skippedCount++;
+    } else {
+      const displayName =
+        cust.name && cust.name !== 'Guest'
+          ? cust.name.trim()
+          : `Customer ${cleanPhone.slice(-4)}`;
+
+      await Contacts.addContactAsync({
+        contactType: Contacts.ContactTypes.Person,
+        firstName: `Koji - ${displayName}`,
+        name: `Koji - ${displayName}`,
+        phoneNumbers: [
+          {
+            label: 'mobile',
+            number: `+91${cleanPhone}`,
+          },
+        ],
+      });
+      existingNumbersSet.add(cleanPhone);
+      addedCount++;
+    }
+  }
+
+  try {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  } catch {}
+
+  return {
+    addedCount,
+    skippedCount,
+    totalUnique: customers.length,
+  };
+};
+
+export const HOLIDAY_SENT_STORAGE_PREFIX = '@koji_holiday_sent_';
+
+export const getHolidaySentPhones = async (dateKey: string): Promise<string[]> => {
+  try {
+    const raw = await AsyncStorage.getItem(`${HOLIDAY_SENT_STORAGE_PREFIX}${dateKey}`);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch {}
+  return [];
+};
+
+export const markHolidaySentPhone = async (
+  dateKey: string,
+  phone: string
+): Promise<string[]> => {
+  try {
+    const current = await getHolidaySentPhones(dateKey);
+    const updated = Array.from(new Set([...current, phone]));
+    await AsyncStorage.setItem(
+      `${HOLIDAY_SENT_STORAGE_PREFIX}${dateKey}`,
+      JSON.stringify(updated)
+    );
+    return updated;
+  } catch {
+    return [];
+  }
+};
 
 

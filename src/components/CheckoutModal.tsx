@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Modal,
   View,
@@ -10,8 +10,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   TouchableWithoutFeedback,
-  Keyboard,
-  Alert,
 } from 'react-native';
 import {
   X,
@@ -28,6 +26,7 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { CartItem, CustomerProfile, OrderType } from '../types';
+import { KojiConfirmModal, KojiConfirmModalProps } from './KojiConfirmModal';
 import { VegBadge } from './VegBadge';
 import { TokenBadge } from './TokenBadge';
 import { getCustomerProfiles } from '../services/storage';
@@ -86,6 +85,28 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [profiles, setProfiles] = useState<CustomerProfile[]>([]);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
   const [autoPrint, setAutoPrint] = useState<boolean>(true);
+  const [customerSectionY, setCustomerSectionY] = useState<number>(260);
+  const [confirmModal, setConfirmModal] = useState<KojiConfirmModalProps | null>(null);
+
+  const scrollViewRef = useRef<React.ElementRef<typeof ScrollView>>(null);
+
+  const scrollToCustomerName = useCallback(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollTo({
+        y: Math.max(0, customerSectionY - 15),
+        animated: true,
+      });
+    }, 120);
+  }, [customerSectionY]);
+
+  const scrollToCustomerPhone = useCallback(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollTo({
+        y: Math.max(0, customerSectionY + 70),
+        animated: true,
+      });
+    }, 120);
+  }, [customerSectionY]);
 
   const subtotal = useMemo(() => {
     return items.reduce((s, i) => s + i.price * i.quantity, 0);
@@ -135,6 +156,18 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       .slice(0, 4);
   }, [customerName, profiles]);
 
+  // When matching returning customers appear, keep dropdown smoothly in full view
+  useEffect(() => {
+    if (showSuggestions && filteredSuggestions.length > 0) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({
+          y: Math.max(0, customerSectionY - 15),
+          animated: true,
+        });
+      }, 100);
+    }
+  }, [showSuggestions, filteredSuggestions.length, customerSectionY]);
+
   const handleSelectProfile = (profile: CustomerProfile) => {
     try {
       Haptics.selectionAsync();
@@ -177,11 +210,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       } catch {}
       setValidationError('Please enter customer name');
-      Alert.alert(
-        'Customer Name Required',
-        'Customer name is strictly required to confirm this order.',
-        [{ text: 'OK' }]
-      );
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'Missing Details',
+        title: 'Customer Name Required',
+        message: 'Customer name is strictly required to confirm this order.',
+        primaryLabel: 'Got It',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
       return;
     }
 
@@ -192,11 +231,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       } catch {}
       setValidationError('Please enter a valid 10-digit mobile number');
-      Alert.alert(
-        '10-Digit Mobile Number Required',
-        'Please enter a valid 10-digit mobile number (Indian standard mobile format e.g. 9876543210).',
-        [{ text: 'OK' }]
-      );
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'Missing Details',
+        title: '10-Digit Mobile Number Required',
+        message: 'Please enter a valid 10-digit mobile number (Indian standard format e.g. 9876543210).',
+        primaryLabel: 'Got It',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
       return;
     }
 
@@ -242,40 +287,52 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       animationType="slide"
       transparent={true}
       onRequestClose={handleClose}
+      statusBarTranslucent
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.backdrop}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
-            style={styles.keyboardAvoid}
-          >
-            <View style={styles.sheetContainer}>
-              {/* Sheet Drag Indicator */}
-              <View style={styles.dragBarContainer}>
-                <View style={styles.dragBar} />
-              </View>
+      <View style={styles.backdrop}>
+        {/* Backdrop Tap Outside Dismissal */}
+        <TouchableWithoutFeedback onPress={handleClose}>
+          <View style={styles.backdropDismissArea} />
+        </TouchableWithoutFeedback>
 
-              {/* Header */}
-              <View style={styles.header}>
-                <View style={styles.headerTitleRow}>
-                  <Text style={styles.headerTitle}>Review Order</Text>
-                  <TokenBadge token={nextToken} variant="apricot" size="md" />
-                </View>
-                <TouchableOpacity
-                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                  onPress={handleClose}
-                  style={styles.closeButton}
-                >
-                  <X size={20} color={COLORS.organic} />
-                </TouchableOpacity>
-              </View>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+          style={styles.keyboardAvoid}
+        >
+          <View style={styles.sheetContainer}>
+            {/* Sheet Drag Indicator */}
+            <View style={styles.dragBarContainer}>
+              <View style={styles.dragBar} />
+            </View>
 
-              <ScrollView
-                style={styles.scrollContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
+            {/* Pinned Header */}
+            <View style={styles.header}>
+              <View style={styles.headerTitleRow}>
+                <Text style={styles.headerTitle}>Review Order</Text>
+                <TokenBadge token={nextToken} variant="apricot" size="md" />
+              </View>
+              <TouchableOpacity
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                onPress={handleClose}
+                style={styles.closeButton}
+                accessibilityLabel="Close review order modal"
               >
+                <X size={20} color={COLORS.forest} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Single Outer ScrollView between Pinned Header and Pinned Footer */}
+            <ScrollView
+              ref={scrollViewRef}
+              style={styles.scrollContent}
+              contentContainerStyle={styles.scrollContentContainer}
+              showsVerticalScrollIndicator={true}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled={true}
+              bounces={true}
+              overScrollMode="always"
+            >
                 {/* Itemized Receipt Preview */}
                 <View style={styles.receiptCard}>
                   <Text style={styles.sectionHeader}>ORDER SUMMARY</Text>
@@ -357,7 +414,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 </View>
 
                 {/* Mandatory Customer Details Form */}
-                <View style={styles.formSection}>
+                <View
+                  style={styles.formSection}
+                  onLayout={(event) => {
+                    const y = event.nativeEvent.layout.y;
+                    if (y > 0) setCustomerSectionY(y);
+                  }}
+                >
                   <View style={styles.sectionHeaderRow}>
                     <Text style={styles.sectionHeader}>CUSTOMER DETAILS (MANDATORY)</Text>
                     <Text style={styles.requiredIndicator}>* Required</Text>
@@ -374,14 +437,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   {/* Customer Name (Mandatory) */}
                   <View style={styles.inputWrapper}>
                     <View style={styles.inputIcon}>
-                      <User size={16} color={COLORS.natural} />
+                      <User size={16} color={COLORS.slate} />
                     </View>
                     <TextInput
                       style={styles.input}
                       placeholder="Customer Name *"
-                      placeholderTextColor={COLORS.natural}
+                      placeholderTextColor={COLORS.slate}
                       value={customerName}
-                      onFocus={() => setShowSuggestions(true)}
+                      onFocus={() => {
+                        setShowSuggestions(true);
+                        scrollToCustomerName();
+                      }}
                       onChangeText={(text) => {
                         setCustomerName(text);
                         setShowSuggestions(true);
@@ -399,7 +465,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         style={styles.clearInputBtn}
                       >
-                        <X size={14} color={COLORS.natural} />
+                        <X size={14} color={COLORS.slate} />
                       </TouchableOpacity>
                     )}
                   </View>
@@ -409,7 +475,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     <View style={styles.suggestionsBox}>
                       <View style={styles.suggestionsHeader}>
                         <View style={styles.suggestionsHeaderLeft}>
-                          <Sparkles size={12} color={COLORS.apricot} />
+                          <Sparkles size={12} color={COLORS.amber} />
                           <Text style={styles.suggestionsHeaderTitle}>
                             RETURNING CUSTOMERS
                           </Text>
@@ -418,7 +484,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                           onPress={() => setShowSuggestions(false)}
                           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                         >
-                          <X size={12} color={COLORS.natural} />
+                          <X size={12} color={COLORS.slate} />
                         </TouchableOpacity>
                       </View>
 
@@ -446,7 +512,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                             </View>
 
                             <View style={styles.suggestionRight}>
-                              <Phone size={11} color={COLORS.natural} />
+                              <Phone size={11} color={COLORS.slate} />
                               <Text style={styles.suggestionPhone}>
                                 {profile.phone}
                               </Text>
@@ -460,13 +526,16 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   {/* Contact Number (Mandatory 10 Digits) */}
                   <View style={styles.inputWrapper}>
                     <View style={styles.inputIcon}>
-                      <Phone size={16} color={COLORS.natural} />
+                      <Phone size={16} color={COLORS.slate} />
                     </View>
                     <TextInput
                       style={styles.input}
                       placeholder="10-Digit Mobile Number *"
-                      placeholderTextColor={COLORS.natural}
+                      placeholderTextColor={COLORS.slate}
                       value={customerPhone}
+                      onFocus={() => {
+                        scrollToCustomerPhone();
+                      }}
                       onChangeText={(text) => {
                         // Allow only numeric digits
                         const cleaned = text.replace(/[^0-9]/g, '').slice(0, 10);
@@ -564,7 +633,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                               {type}
                             </Text>
                             {isSelected && (
-                              <Check size={13} color="#FFFFFF" strokeWidth={2.8} />
+                              <Check size={13} color={COLORS.white} strokeWidth={2.8} />
                             )}
                           </TouchableOpacity>
                         );
@@ -592,7 +661,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       >
                         <Smartphone
                           size={16}
-                          color={paymentMethod === 'UPI' ? '#1B5E20' : COLORS.textSecondary}
+                          color={paymentMethod === 'UPI' ? COLORS.forest : COLORS.slate}
                           strokeWidth={2.4}
                         />
                         <Text
@@ -604,7 +673,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                           UPI
                         </Text>
                         {paymentMethod === 'UPI' && (
-                          <Check size={14} color="#1B5E20" strokeWidth={2.8} />
+                          <Check size={14} color={COLORS.forest} strokeWidth={2.8} />
                         )}
                       </TouchableOpacity>
 
@@ -624,7 +693,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       >
                         <Banknote
                           size={16}
-                          color={paymentMethod === 'Cash' ? '#0D47A1' : COLORS.textSecondary}
+                          color={paymentMethod === 'Cash' ? COLORS.forest : COLORS.slate}
                           strokeWidth={2.4}
                         />
                         <Text
@@ -636,7 +705,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                           Cash
                         </Text>
                         {paymentMethod === 'Cash' && (
-                          <Check size={14} color="#0D47A1" strokeWidth={2.8} />
+                          <Check size={14} color={COLORS.forest} strokeWidth={2.8} />
                         )}
                       </TouchableOpacity>
                     </View>
@@ -703,7 +772,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </View>
           </KeyboardAvoidingView>
         </View>
-      </TouchableWithoutFeedback>
+
+        {/* Universal Kōji Confirmation / Notice Modal */}
+        {confirmModal && (
+          <KojiConfirmModal
+            {...confirmModal}
+            onClose={() => {
+              confirmModal.onClose?.();
+              setConfirmModal(null);
+            }}
+          />
+        )}
     </Modal>
   );
 };
@@ -714,15 +793,24 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.overlay,
     justifyContent: 'flex-end',
   },
+  backdropDismissArea: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   keyboardAvoid: {
     justifyContent: 'flex-end',
+    width: '100%',
+    maxHeight: '92%',
   },
   sheetContainer: {
     backgroundColor: COLORS.ivory,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: '90%',
-    paddingBottom: Platform.OS === 'ios' ? 24 : 16,
+    maxHeight: '100%',
+    flexShrink: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15,
@@ -738,7 +826,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: COLORS.borderLight,
+    backgroundColor: COLORS.border,
   },
   header: {
     flexDirection: 'row',
@@ -747,7 +835,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.xl,
     paddingVertical: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight,
+    borderBottomColor: COLORS.border,
   },
   headerTitleRow: {
     flexDirection: 'row',
@@ -756,20 +844,24 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.heavy,
   },
   closeButton: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: COLORS.surfaceMuted,
+    backgroundColor: COLORS.sage,
     alignItems: 'center',
     justifyContent: 'center',
   },
   scrollContent: {
+    flexShrink: 1,
     paddingHorizontal: SPACING.xl,
     paddingTop: SPACING.md,
+  },
+  scrollContentContainer: {
+    paddingBottom: 48,
   },
   receiptCard: {
     backgroundColor: COLORS.cardBg,
@@ -801,8 +893,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#FFEBEE',
-    borderColor: '#FFCDD2',
+    backgroundColor: COLORS.dangerTint,
+    borderColor: COLORS.danger,
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 10,
@@ -883,14 +975,14 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   suggestionsBox: {
-    backgroundColor: '#FFFDF9',
+    backgroundColor: COLORS.white,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: COLORS.apricot,
+    borderColor: COLORS.amber,
     marginTop: -4,
     marginBottom: SPACING.sm,
     overflow: 'hidden',
-    shadowColor: COLORS.organic,
+    shadowColor: COLORS.forest,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -902,7 +994,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: '#FAF2DE',
+    backgroundColor: COLORS.amberTint,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.borderLight,
   },
@@ -913,7 +1005,7 @@ const styles = StyleSheet.create({
   },
   suggestionsHeaderTitle: {
     fontSize: 10,
-    color: COLORS.apricot,
+    color: COLORS.amber,
     ...FONTS.heavy,
     letterSpacing: 0.6,
   },
@@ -938,15 +1030,15 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: '#FAF2DE',
+    backgroundColor: COLORS.amberTint,
     borderWidth: 1,
-    borderColor: COLORS.apricot,
+    borderColor: COLORS.amber,
     alignItems: 'center',
     justifyContent: 'center',
   },
   suggestionAvatarText: {
     fontSize: 10,
-    color: COLORS.apricot,
+    color: COLORS.amber,
     ...FONTS.bold,
   },
   suggestionName: {
@@ -1015,8 +1107,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surfaceMuted,
   },
   chipSelected: {
-    borderColor: COLORS.apricot,
-    backgroundColor: '#FDF1E2',
+    borderColor: COLORS.amber,
+    backgroundColor: COLORS.amberTint,
   },
   chipText: {
     fontSize: 11,
@@ -1024,13 +1116,13 @@ const styles = StyleSheet.create({
     ...FONTS.medium,
   },
   chipTextSelected: {
-    color: COLORS.apricot,
+    color: COLORS.amber,
     ...FONTS.bold,
   },
   autoPrintRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: COLORS.white,
     borderRadius: 14,
     padding: 12,
     borderWidth: 1.5,
@@ -1044,7 +1136,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 1.8,
     borderColor: COLORS.forestGreen,
-    backgroundColor: '#FFFDF7',
+    backgroundColor: COLORS.white,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1074,8 +1166,10 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: SPACING.xl,
     paddingTop: SPACING.sm,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 14,
     borderTopWidth: 1,
     borderTopColor: COLORS.borderLight,
+    backgroundColor: COLORS.ivory,
   },
   confirmButton: {
     flexDirection: 'row',
@@ -1197,23 +1291,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-    backgroundColor: '#F8F9F5',
+    backgroundColor: COLORS.canvas,
     borderWidth: 1.5,
-    borderColor: '#E0E7DE',
+    borderColor: COLORS.border,
     borderRadius: 12,
     paddingVertical: 10,
   },
   orderTypeSelectorPillActive: {
-    backgroundColor: '#0D381E',
-    borderColor: '#0D381E',
+    backgroundColor: COLORS.forest,
+    borderColor: COLORS.forest,
   },
   orderTypeSelectorPillText: {
     fontSize: 13,
-    color: '#4A5E50',
+    color: COLORS.slate,
     ...FONTS.bold,
   },
   orderTypeSelectorPillTextActive: {
-    color: '#FFFFFF',
+    color: COLORS.white,
   },
   paymentSectionBox: {
     marginTop: SPACING.md,
@@ -1221,7 +1315,7 @@ const styles = StyleSheet.create({
   },
   paymentSectionLabel: {
     fontSize: 11,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.heavy,
     letterSpacing: 0.8,
     marginBottom: 8,
@@ -1239,28 +1333,28 @@ const styles = StyleSheet.create({
     gap: 6,
     backgroundColor: COLORS.white,
     borderWidth: 1.5,
-    borderColor: COLORS.borderLight,
+    borderColor: COLORS.border,
     borderRadius: 12,
     paddingVertical: 10,
   },
   paymentSelectorPillActiveUpi: {
-    backgroundColor: '#E8F5E9',
-    borderColor: '#2E7D32',
+    backgroundColor: COLORS.successTint,
+    borderColor: COLORS.success,
   },
   paymentSelectorPillActiveCash: {
-    backgroundColor: '#E3F2FD',
-    borderColor: '#1976D2',
+    backgroundColor: COLORS.sage,
+    borderColor: COLORS.border,
   },
   paymentSelectorPillText: {
     fontSize: 13,
-    color: COLORS.textSecondary,
+    color: COLORS.slate,
     ...FONTS.bold,
   },
   paymentSelectorPillTextActiveUpi: {
-    color: '#1B5E20',
+    color: COLORS.forest,
   },
   paymentSelectorPillTextActiveCash: {
-    color: '#0D47A1',
+    color: COLORS.forest,
   },
   paymentHelperText: {
     fontSize: 11.5,

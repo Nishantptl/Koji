@@ -1,4 +1,4 @@
-import { Linking, Alert, Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { Order, CartItem } from '../types';
@@ -57,10 +57,7 @@ export async function sendSmsNotification(
 ): Promise<boolean> {
   const sanitized = sanitizeWhatsAppPhone(phone);
   if (!sanitized || sanitized.length < 10) {
-    Alert.alert(
-      'Missing Phone Number',
-      'Please ensure the customer has a valid phone number recorded for SMS notifications.'
-    );
+    console.warn('Missing Phone Number: Customer does not have a valid phone number recorded for SMS.');
     return false;
   }
 
@@ -75,10 +72,7 @@ export async function sendSmsNotification(
       await Linking.openURL(`sms:+${sanitized}?body=${encodedBody}`);
       return true;
     } catch {
-      Alert.alert(
-        'SMS Failed',
-        err?.message || 'Could not open native SMS application on this device.'
-      );
+      console.warn('SMS Failed:', err?.message || 'Could not open native SMS application on this device.');
       return false;
     }
   }
@@ -88,27 +82,8 @@ export async function sendSmsNotification(
  * Prompts user to send via SMS when WhatsApp is unavailable.
  */
 function promptSmsFallback(phone: string, message: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    Alert.alert(
-      'WhatsApp Unavailable',
-      'WhatsApp Business / WhatsApp is not installed or could not be opened. Would you like to send this pickup alert via SMS instead?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-          onPress: () => resolve(false),
-        },
-        {
-          text: 'Send via SMS',
-          style: 'default',
-          onPress: async () => {
-            const smsSent = await sendSmsNotification(phone, message);
-            resolve(smsSent);
-          },
-        },
-      ]
-    );
-  });
+  console.warn('WhatsApp is unavailable, attempting automatic fallback to native SMS.');
+  return sendSmsNotification(phone, message);
 }
 
 /**
@@ -123,10 +98,7 @@ export async function openCustomerNotification(
 ): Promise<boolean> {
   const sanitized = sanitizeWhatsAppPhone(phone);
   if (!sanitized || sanitized.length < 10) {
-    Alert.alert(
-      'Missing Phone Number',
-      'Please ensure the customer has a valid 10-digit phone number recorded for notifications.'
-    );
+    console.warn('Missing Phone Number: Customer does not have a valid 10-digit phone number recorded for notifications.');
     return false;
   }
 
@@ -201,49 +173,36 @@ export async function openWhatsAppMessage(
 
 /**
  * Option A: Single Dish Ready Pickup Notification
- * Format:
- * "Hi [CustomerName]! Your *[qty]x [DishName]* (Token #[token]) is hot and ready at *Kōji*! Please collect it from the counter. 🍣"
  */
 export async function sendDishReadyNotification(
   order: Order,
   item: CartItem
 ): Promise<boolean> {
   if (!order.customerPhone) {
-    Alert.alert(
-      'No Contact Number',
-      'This order does not have a customer phone number recorded.'
-    );
+    console.warn('No Contact Number: This order does not have a customer phone number recorded.');
     return false;
   }
 
   const customerName = order.customerName?.trim() || 'there';
-  const token = order.token.startsWith('#') ? order.token : `#${order.token}`;
-  const message = `Hi ${customerName}! Your *${item.quantity}x ${item.name}* (Token ${token}) is hot and ready at *Kōji*! Please collect it from the counter. 🍣`;
+  const cleanToken = order.token.replace(/^#+/, '');
+  const message = `Hi ${customerName}! 🥢 Your added items for (Token #${cleanToken}) are ready for pickup at Kōji:\n\n- ${item.quantity}x ${item.name}\n\nPlease collect them from the counter!`;
 
   return openCustomerNotification(order.customerPhone, message);
 }
 
 /**
  * Option B: Complete Order Ready Pickup Notification
- * Format:
- * "Hi [CustomerName]! Your complete order *(Token #[token])* is ready for pickup at *Kōji*! 🥢
- * • [qty]x [Dish 1]
- * • [qty]x [Dish 2]
- * Please collect it from the counter!"
  */
 export async function sendOrderReadyNotification(
   order: Order
 ): Promise<boolean> {
   if (!order.customerPhone) {
-    Alert.alert(
-      'No Contact Number',
-      'This order does not have a customer phone number recorded.'
-    );
+    console.warn('No Contact Number: This order does not have a customer phone number recorded.');
     return false;
   }
 
   const customerName = order.customerName?.trim() || 'there';
-  const token = order.token.startsWith('#') ? order.token : `#${order.token}`;
+  const cleanToken = order.token.replace(/^#+/, '');
 
   const activeItems = order.items.filter(
     (i) => i.status !== 'cancelled' && i.quantity > 0
@@ -251,35 +210,28 @@ export async function sendOrderReadyNotification(
 
   const itemList =
     activeItems.length > 0
-      ? activeItems.map((i) => `• ${i.quantity}x ${i.name}`).join('\n')
-      : `• ${order.items.length} dishes`;
+      ? activeItems.map((i) => `- ${i.quantity}x ${i.name}`).join('\n')
+      : `- ${order.items.length} dishes`;
 
-  const message = `Hi ${customerName}! Your complete order *(Token ${token})* is ready for pickup at *Kōji*! 🥢\n${itemList}\nPlease collect it from the counter!`;
+  const message = `Hi ${customerName}! 🍣 Your order (Token #${cleanToken}) at Kōji is freshly prepared and ready for pickup at the counter:\n\n${itemList}\n\nBest enjoyed fresh—see you at the counter!`;
 
   return openCustomerNotification(order.customerPhone, message);
 }
 
 /**
  * Option C: Newly Added Add-on Items Ready Pickup Notification
- * Format:
- * "Hi [CustomerName]! Your newly added items *(Token #[token])* are ready for pickup at *Kōji*! 🥢
- * • [qty]x [New Dish]
- * Please collect them from the counter!"
  */
 export async function sendAddonReadyNotification(
   order: Order,
   unnotifiedItems: CartItem[]
 ): Promise<boolean> {
   if (!order.customerPhone) {
-    Alert.alert(
-      'No Contact Number',
-      'This order does not have a customer phone number recorded.'
-    );
+    console.warn('No Contact Number: This order does not have a customer phone number recorded.');
     return false;
   }
 
   const customerName = order.customerName?.trim() || 'there';
-  const token = order.token.startsWith('#') ? order.token : `#${order.token}`;
+  const cleanToken = order.token.replace(/^#+/, '');
 
   const activeUnnotified = unnotifiedItems.filter(
     (i) => i.status !== 'cancelled' && i.quantity > 0
@@ -287,10 +239,10 @@ export async function sendAddonReadyNotification(
 
   const itemList =
     activeUnnotified.length > 0
-      ? activeUnnotified.map((i) => `• ${i.quantity}x ${i.name}`).join('\n')
-      : `• New add-on items`;
+      ? activeUnnotified.map((i) => `- ${i.quantity}x ${i.name}`).join('\n')
+      : `- Added items`;
 
-  const message = `Hi ${customerName}! Your newly added items *(Token ${token})* are ready for pickup at *Kōji*! 🥢\n${itemList}\nPlease collect them from the counter!`;
+  const message = `Hi ${customerName}! 🥢 Your added items for (Token #${cleanToken}) are ready for pickup at Kōji:\n\n${itemList}\n\nPlease collect them from the counter!`;
 
   return openCustomerNotification(order.customerPhone, message);
 }

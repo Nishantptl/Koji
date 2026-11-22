@@ -11,6 +11,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { UtensilsCrossed, ClipboardList, Settings } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { requireOptionalNativeModule } from 'expo';
 import { TakeOrderScreen } from './src/screens/TakeOrderScreen';
 import { OrderListScreen } from './src/screens/OrderListScreen';
 import { AdminScreen } from './src/screens/AdminScreen';
@@ -25,6 +26,20 @@ export default function App() {
   const [ordersRefreshTrigger, setOrdersRefreshTrigger] = useState<number>(0);
   const [menuRefreshTrigger, setMenuRefreshTrigger] = useState<number>(0);
   const [activeOrdersCount, setActiveOrdersCount] = useState<number>(0);
+
+  // Disable stray floating developer gear button on Android dev builds
+  useEffect(() => {
+    try {
+      const DevMenuPreferences = requireOptionalNativeModule('DevMenuPreferences');
+      if (DevMenuPreferences?.setPreferencesAsync) {
+        DevMenuPreferences.setPreferencesAsync({
+          showFloatingActionButton: false,
+        });
+      }
+    } catch {
+      // DevMenuPreferences not available in production or bare Expo Go
+    }
+  }, []);
 
   // Sync active order count for the tab badge
   const updateMetricsCount = useCallback(async () => {

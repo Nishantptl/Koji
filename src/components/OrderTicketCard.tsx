@@ -5,11 +5,8 @@ import {
   TouchableOpacity,
   StyleSheet,
   Linking,
-  Alert,
 } from 'react-native';
 import {
-  Clock,
-  User,
   Printer,
   Edit3,
   CreditCard,
@@ -20,7 +17,15 @@ import {
 import * as Haptics from 'expo-haptics';
 import { Order, CartItem } from '../types';
 import { VegBadge } from './VegBadge';
-import { formatTime, formatDate, isOrderFromToday } from '../services/storage';
+import {
+  formatTime,
+  formatDate,
+  isOrderFromToday,
+  getOrderBalanceDue,
+  getOrderAmountPaid,
+  isOrderFullyPaid,
+} from '../services/storage';
+import { COLORS } from '../theme/colors';
 import { FONTS } from '../constants/theme';
 
 export interface OrderTicketCardProps {
@@ -51,22 +56,12 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
   const dateStr = formatDate(order.timestamp);
   const isPreparing = order.status === 'preparing';
 
-  const balanceDue =
-    typeof order.balanceDue === 'number'
-      ? order.balanceDue
-      : order.paymentStatus === 'Completed'
-      ? 0
-      : order.totalAmount;
-  const amountPaid =
-    typeof order.amountPaid === 'number'
-      ? order.amountPaid
-      : order.paymentStatus === 'Completed'
-      ? order.totalAmount
-      : 0;
-  const isPaid = order.paymentStatus === 'Completed' || balanceDue <= 0;
+  const balanceDue = getOrderBalanceDue(order);
+  const amountPaid = getOrderAmountPaid(order);
+  const isFullyPaid = isOrderFullyPaid(order);
+  const isPaid = isFullyPaid;
   const isPartial =
     order.paymentStatus === 'Partial' || (amountPaid > 0 && balanceDue > 0);
-  const isFullyPaid = isPaid && balanceDue <= 0;
 
   const orderType =
     order.orderType === 'Take Away' || order.orderType === 'Parcel'
@@ -94,46 +89,52 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
   return (
     <View style={[styles.orderCard, isPreparing && styles.orderCardActive]}>
       {/* ========================================================= */}
-      {/* 1. HEADER ROW: Token + Order Type + Time + Print (Left), Total (Right) */}
+      {/* 1. HEADER ROW: Token + Centered (Order Type / Time) + Print Beside Amount */}
       {/* ========================================================= */}
       <View style={styles.cardHeader}>
-        {/* Left Group: Token Badge, Order Type, Clock + Time, and Print Pill */}
+        {/* Left Group: Token Badge + Stacked Center-Aligned (Order Type / Time) */}
         <View style={styles.cardHeaderLeft}>
           <View style={styles.tokenPill}>
             <Text style={styles.tokenPillText}>{order.token}</Text>
           </View>
 
-          {/* Compact Order Type Badge (Dine-in / Parcel / Car) */}
-          <View
-            style={[
-              styles.orderTypePill,
-              orderType === 'Parcel'
-                ? styles.orderTypeParcel
-                : orderType === 'Car'
-                ? styles.orderTypeCar
-                : styles.orderTypeDineIn,
-            ]}
-          >
-            <Text
+          {/* Stacked column with Order Type badge centered directly above Time */}
+          <View style={styles.tokenMetaStack}>
+            {/* Top line: Compact Order Type pill/label */}
+            <View
               style={[
-                styles.orderTypePillText,
+                styles.orderTypePill,
                 orderType === 'Parcel'
-                  ? styles.orderTypeParcelText
+                  ? styles.orderTypeParcel
                   : orderType === 'Car'
-                  ? styles.orderTypeCarText
-                  : styles.orderTypeDineInText,
+                  ? styles.orderTypeCar
+                  : styles.orderTypeDineIn,
               ]}
             >
-              {orderType}
+              <Text
+                style={[
+                  styles.orderTypePillText,
+                  orderType === 'Parcel'
+                    ? styles.orderTypeParcelText
+                    : orderType === 'Car'
+                    ? styles.orderTypeCarText
+                    : styles.orderTypeDineInText,
+                ]}
+              >
+                {orderType}
+              </Text>
+            </View>
+
+            {/* Bottom line: Plain order time string centered underneath */}
+            <Text style={styles.timeText}>
+              {timeStr}
+              {!isToday ? ` • ${dateStr}` : ''}
             </Text>
           </View>
+        </View>
 
-          <View style={styles.timeRow}>
-            <Clock size={11} color="#7A8B7E" strokeWidth={2} />
-            <Text style={styles.timeText}>{timeStr}</Text>
-            {!isToday && <Text style={styles.dateText}>• {dateStr}</Text>}
-          </View>
-
+        {/* Right Group: [ 🖨 Print ] button directly in front of right-aligned ₹Amount */}
+        <View style={styles.cardHeaderRight}>
           <TouchableOpacity
             activeOpacity={0.75}
             onPress={() => onPrint?.(order)}
@@ -141,17 +142,16 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
             hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
             accessibilityLabel="Print order KOT or receipt"
           >
-            <Printer size={11} color="#4A5E50" strokeWidth={2.2} />
+            <Printer size={11} color={COLORS.slate} strokeWidth={2.2} />
             <Text style={styles.printCardBtnText}>Print</Text>
           </TouchableOpacity>
-        </View>
 
-        {/* Right Group: Bold Total Amount (flexShrink: 0 - Never collides) */}
-        <View style={styles.cardHeaderRight}>
-          <Text style={styles.amountText}>₹{order.totalAmount}</Text>
-          {isPartial && balanceDue > 0 && (
-            <Text style={styles.amountSubDueText}>Due: ₹{balanceDue}</Text>
-          )}
+          <View style={styles.amountCol}>
+            <Text style={styles.amountText}>₹{order.totalAmount}</Text>
+            {isPartial && balanceDue > 0 && (
+              <Text style={styles.amountSubDueText}>Due: ₹{balanceDue}</Text>
+            )}
+          </View>
         </View>
       </View>
 
@@ -169,7 +169,7 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
           >
             <Edit3
               size={12}
-              color="#0D381E"
+              color={COLORS.forest}
               strokeWidth={2.2}
             />
             <Text
@@ -200,11 +200,11 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
             hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
           >
             {!isPaid ? (
-              <CreditCard size={12} color="#D78B30" strokeWidth={2.2} />
+              <CreditCard size={12} color={COLORS.amber} strokeWidth={2.2} />
             ) : (
               <Check
                 size={12}
-                color="#0D381E"
+                color={COLORS.forest}
                 strokeWidth={2.6}
               />
             )}
@@ -231,7 +231,7 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
               style={styles.actionBtnDoneAmber}
               hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
             >
-              <Check size={13} color="#D78B30" strokeWidth={2.8} />
+              <Check size={13} color={COLORS.amber} strokeWidth={2.8} />
               <Text
                 style={styles.actionBtnDoneAmberText}
                 numberOfLines={1}
@@ -245,7 +245,7 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
             <View style={styles.actionBtnCompletedBadge}>
               <Check
                 size={12}
-                color="#0D381E"
+                color={COLORS.forest}
                 strokeWidth={2.6}
               />
               <Text
@@ -276,14 +276,13 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
               } catch {}
               const clean = order.customerPhone.replace(/[^0-9+]/g, '');
               if (clean) {
-                Linking.openURL(`tel:${clean}`).catch(() => {
-                  Alert.alert('Unable to Call', 'Could not open phone dialer.');
+                Linking.openURL(`tel:${clean}`).catch((err) => {
+                  console.warn('Could not open phone dialer:', err);
                 });
               }
             }}
             style={styles.customerInfoGroup}
           >
-            <User size={12} color="#4A5E50" strokeWidth={2.2} style={styles.customerUserIcon} />
             <Text
               style={styles.customerCombinedText}
               numberOfLines={1}
@@ -315,12 +314,12 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
             >
               {order.notified ? (
                 <>
-                  <Check size={11} color="#25D366" strokeWidth={2.8} />
+                  <Check size={11} color={COLORS.success} strokeWidth={2.8} />
                   <Text style={styles.notifyOrderPillTextNotified}>Notified</Text>
                 </>
               ) : (
                 <>
-                  <MessageCircle size={11} color="#128C7E" strokeWidth={2.4} />
+                  <MessageCircle size={11} color={COLORS.forest} strokeWidth={2.4} />
                   <Text style={styles.notifyOrderPillText}>Notify Ready</Text>
                 </>
               )}
@@ -375,17 +374,9 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
                   isItemCancelled && styles.itemRowCancelled,
                 ]}
               >
-                {/* Left: Veg/Non-Veg Badge + 1x + Dish Name */}
+                {/* Left: Veg/Non-Veg Badge + Dish Name (No quantity prefix) */}
                 <View style={styles.itemLeft}>
                   <VegBadge isVeg={cartItem.isVeg} size={15} />
-                  <Text
-                    style={[
-                      styles.multiplierText,
-                      isItemCancelled && styles.textLineThrough,
-                    ]}
-                  >
-                    {cartItem.quantity}x
-                  </Text>
                   <Text
                     style={[
                       styles.itemNameText,
@@ -419,7 +410,7 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
                         >
                           <Check
                             size={10}
-                            color={isItemDone ? '#2E7D32' : '#7A8B7E'}
+                            color={isItemDone ? COLORS.success : COLORS.slate}
                             strokeWidth={2.8}
                           />
                           <Text
@@ -440,7 +431,7 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
                             style={styles.itemCancelActionBtn}
                             hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                           >
-                            <X size={10} color="#E53935" strokeWidth={2.8} />
+                            <X size={10} color={COLORS.danger} strokeWidth={2.8} />
                             <Text style={styles.itemCancelActionText}>Cancel</Text>
                           </TouchableOpacity>
                         )}
@@ -461,7 +452,7 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
                       >
                         <MessageCircle
                           size={12}
-                          color={cartItem.notified ? '#25D366' : '#128C7E'}
+                          color={cartItem.notified ? COLORS.success : COLORS.forest}
                           strokeWidth={2.4}
                         />
                       </TouchableOpacity>
@@ -488,13 +479,13 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
 
 const styles = StyleSheet.create({
   orderCard: {
-    backgroundColor: '#FFFFFF', // Crisp white card background
+    backgroundColor: COLORS.white, // Crisp white card background
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 14,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E4ECE5', // Subtle sage border
+    borderColor: COLORS.border, // Subtle sage border
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
@@ -502,8 +493,8 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   orderCardActive: {
-    borderColor: '#E4ECE5',
-    backgroundColor: '#FFFFFF',
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.white,
   },
   // 1. Header Row
   cardHeader: {
@@ -512,32 +503,34 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#EDF2EC',
+    borderBottomColor: COLORS.sage,
   },
   cardHeaderLeft: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginRight: 8,
-    minWidth: 0,
-    flexWrap: 'nowrap',
+    gap: 10,
   },
   tokenPill: {
-    backgroundColor: '#FFF8F0',
+    backgroundColor: COLORS.amberTint,
     borderWidth: 1.2,
-    borderColor: '#F0C995',
+    borderColor: COLORS.amber,
     borderRadius: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 2.5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tokenPillText: {
-    fontSize: 12.5,
-    color: '#D78B30', // Warm amber
+    fontSize: 16,
+    color: COLORS.amber, // Warm amber
     ...FONTS.heavy,
     letterSpacing: 0.4,
+  },
+  tokenMetaStack: {
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 2.5,
   },
   timeRow: {
     flexDirection: 'row',
@@ -545,45 +538,49 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   timeText: {
-    fontSize: 12,
-    color: '#4A5E50',
-    ...FONTS.semibold,
+    fontSize: 11,
+    color: COLORS.slate,
+    ...FONTS.medium,
+    lineHeight: 13,
+    textAlign: 'center',
   },
   orderTypePill: {
     paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    paddingVertical: 1.5,
+    borderRadius: 5,
     borderWidth: 1,
+    alignSelf: 'center',
   },
   orderTypeDineIn: {
-    backgroundColor: '#EAF2EC',
-    borderColor: '#A8C5AE',
+    backgroundColor: COLORS.successTint,
+    borderColor: COLORS.border,
   },
   orderTypeParcel: {
-    backgroundColor: '#FDF4E7',
-    borderColor: '#E8B882',
+    backgroundColor: COLORS.amberTint,
+    borderColor: COLORS.amber,
   },
   orderTypeCar: {
-    backgroundColor: '#EBF3FA',
-    borderColor: '#9EC5E8',
+    backgroundColor: COLORS.sage,
+    borderColor: COLORS.border,
   },
   orderTypePillText: {
-    fontSize: 11,
+    fontSize: 10.5,
     ...FONTS.bold,
     letterSpacing: 0.2,
+    lineHeight: 12,
   },
   orderTypeDineInText: {
-    color: '#0D381E',
+    color: COLORS.forest,
   },
   orderTypeParcelText: {
-    color: '#A05A0B',
+    color: COLORS.amber,
   },
   orderTypeCarText: {
-    color: '#13548A',
+    color: COLORS.forest,
   },
   dateText: {
-    fontSize: 10.5,
-    color: '#8C9E91',
+    fontSize: 10,
+    color: COLORS.slate,
     ...FONTS.regular,
   },
   printCardBtn: {
@@ -591,31 +588,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: COLORS.white,
     borderWidth: 1,
-    borderColor: '#D3DFD5',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 10,
+    borderColor: COLORS.border,
+    paddingHorizontal: 8,
+    paddingVertical: 4.5,
+    borderRadius: 8,
   },
   printCardBtnText: {
     fontSize: 11,
-    color: '#4A5E50',
+    color: COLORS.slate,
     ...FONTS.bold,
   },
   cardHeaderRight: {
-    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  amountCol: {
     alignItems: 'flex-end',
     justifyContent: 'center',
   },
   amountText: {
     fontSize: 20,
-    color: '#0D381E', // Bold total in deep forest green
+    color: COLORS.forest, // Bold total in deep forest green
     ...FONTS.heavy,
   },
   amountSubDueText: {
     fontSize: 10,
-    color: '#D78B30',
+    color: COLORS.amber,
     ...FONTS.bold,
     marginTop: -2,
   },
@@ -636,14 +637,14 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 6,
     height: 38,
-    backgroundColor: '#E8F8EE',
+    backgroundColor: COLORS.successTint,
     borderWidth: 1.2,
-    borderColor: '#A3D9B8',
+    borderColor: COLORS.success,
     borderRadius: 12,
   },
   actionBtnEditText: {
     fontSize: 12,
-    color: '#0D381E',
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   actionBtnPayment: {
@@ -658,22 +659,22 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   paymentPillPending: {
-    backgroundColor: '#FDF6EC',
-    borderColor: '#D78B30',
+    backgroundColor: COLORS.amberTint,
+    borderColor: COLORS.amber,
   },
   paymentPillCompleted: {
-    backgroundColor: '#E8F8EE',
-    borderColor: '#A3D9B8',
+    backgroundColor: COLORS.successTint,
+    borderColor: COLORS.success,
   },
   actionBtnPaymentText: {
     fontSize: 12,
     ...FONTS.bold,
   },
   paymentPillTextPending: {
-    color: '#D78B30',
+    color: COLORS.amber,
   },
   paymentPillTextCompleted: {
-    color: '#0D381E',
+    color: COLORS.forest,
   },
   actionBtnDoneAmber: {
     flex: 1,
@@ -683,14 +684,14 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 6,
     height: 38,
-    backgroundColor: '#FDF6EC',
-    borderColor: '#D78B30',
+    backgroundColor: COLORS.amberTint,
+    borderColor: COLORS.amber,
     borderWidth: 1.2,
     borderRadius: 12,
   },
   actionBtnDoneAmberText: {
     fontSize: 12,
-    color: '#D78B30',
+    color: COLORS.amber,
     ...FONTS.bold,
   },
   actionBtnCompletedBadge: {
@@ -701,14 +702,14 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 6,
     height: 38,
-    backgroundColor: '#E8F8EE',
-    borderColor: '#A3D9B8',
+    backgroundColor: COLORS.successTint,
+    borderColor: COLORS.success,
     borderWidth: 1.2,
     borderRadius: 12,
   },
   actionBtnCompletedText: {
     fontSize: 12,
-    color: '#0D381E',
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   // 3. Customer Info Strip
@@ -716,9 +717,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#F8F9F5', // Soft Sage Container
+    backgroundColor: COLORS.canvas, // Soft Sage Container
     borderWidth: 1,
-    borderColor: '#DCE8DE',
+    borderColor: COLORS.border,
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -732,26 +733,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     overflow: 'hidden',
   },
-  customerUserIcon: {
-    marginRight: 5,
-    flexShrink: 0,
-  },
   customerCombinedText: {
     flex: 1,
     fontSize: 12,
   },
   customerText: {
     fontSize: 12,
-    color: '#0D381E',
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   customerBullet: {
     fontSize: 12,
-    color: '#8C9E91',
+    color: COLORS.slate,
   },
   customerPhoneText: {
     fontSize: 12,
-    color: '#4A5E50',
+    color: COLORS.slate,
     ...FONTS.medium,
   },
   notifyOrderPill: {
@@ -759,25 +756,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: COLORS.white,
     borderWidth: 1.2,
-    borderColor: '#34A853',
+    borderColor: COLORS.success,
     paddingHorizontal: 10,
     height: 26,
     borderRadius: 14,
   },
   notifyOrderPillNotified: {
-    backgroundColor: '#E8F5E9',
-    borderColor: '#81C784',
+    backgroundColor: COLORS.successTint,
+    borderColor: COLORS.success,
   },
   notifyOrderPillText: {
     fontSize: 11,
-    color: '#128C7E',
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   notifyOrderPillTextNotified: {
     fontSize: 11,
-    color: '#2E7D32',
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   // 4. Itemized Dish Rows
@@ -791,8 +788,8 @@ const styles = StyleSheet.create({
     marginVertical: 8,
   },
   addonPill: {
-    backgroundColor: '#F4F8F5',
-    borderColor: '#D8E5DC',
+    backgroundColor: COLORS.sage,
+    borderColor: COLORS.border,
     borderWidth: 1,
     borderRadius: 14,
     paddingHorizontal: 14,
@@ -800,7 +797,7 @@ const styles = StyleSheet.create({
   },
   addonPillText: {
     fontSize: 10,
-    color: '#7A8B7E',
+    color: COLORS.slate,
     ...FONTS.bold,
     letterSpacing: 0.5,
   },
@@ -822,18 +819,18 @@ const styles = StyleSheet.create({
   },
   multiplierText: {
     fontSize: 12,
-    color: '#8C9E91',
+    color: COLORS.slate,
     ...FONTS.semibold,
   },
   itemNameText: {
     flex: 1,
     fontSize: 12.5,
-    color: '#0D381E',
+    color: COLORS.forest,
     ...FONTS.semibold,
   },
   textLineThrough: {
     textDecorationLine: 'line-through',
-    color: '#8C9E91',
+    color: COLORS.slate,
   },
   itemRightActions: {
     flexShrink: 0,
@@ -852,23 +849,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
-    backgroundColor: '#FFFFFF', // Neutral white
-    borderColor: '#D3DFD5',
+    backgroundColor: COLORS.white, // Neutral white
+    borderColor: COLORS.border,
     borderWidth: 1,
     paddingHorizontal: 6,
     borderRadius: 6,
   },
   itemProgressText: {
     fontSize: 10.5,
-    color: '#5C7063',
+    color: COLORS.slate,
     ...FONTS.semibold,
   },
   itemDoneBadge: {
-    backgroundColor: '#E4F7EC', // Mint green highlight
-    borderColor: '#34A853',
+    backgroundColor: COLORS.successTint, // Mint green highlight
+    borderColor: COLORS.success,
   },
   itemDoneBadgeText: {
-    color: '#2E7D32',
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   itemCancelActionBtn: {
@@ -877,15 +874,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
-    backgroundColor: '#FFF0F2', // Soft red-tinted
-    borderColor: '#F8B4BE',
+    backgroundColor: COLORS.dangerTint, // Soft red-tinted
+    borderColor: COLORS.danger,
     borderWidth: 1,
     paddingHorizontal: 6,
     borderRadius: 6,
   },
   itemCancelActionText: {
     fontSize: 10,
-    color: '#E53935',
+    color: COLORS.danger,
     ...FONTS.bold,
   },
   itemCancelledBadge: {
@@ -893,47 +890,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFF0F2',
-    borderColor: '#F8B4BE',
+    backgroundColor: COLORS.dangerTint,
+    borderColor: COLORS.danger,
     borderWidth: 1,
     paddingHorizontal: 6,
     borderRadius: 6,
   },
   itemCancelledBadgeText: {
     fontSize: 10,
-    color: '#E53935',
+    color: COLORS.danger,
     ...FONTS.bold,
   },
   itemWhatsappBtn: {
     width: 24,
     height: 24,
     borderRadius: 6,
-    backgroundColor: '#EAF8EF',
+    backgroundColor: COLORS.successTint,
     borderWidth: 1,
-    borderColor: '#A5D6A7',
+    borderColor: COLORS.border,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
   itemWhatsappBtnNotified: {
-    backgroundColor: '#DCF8C6',
-    borderColor: '#25D366',
+    backgroundColor: COLORS.successTint,
+    borderColor: COLORS.success,
   },
   // 5. Bottom Kitchen Note Banner
   notesCallout: {
-    backgroundColor: '#FFF8F0', // Warm cream
+    backgroundColor: COLORS.amberTint, // Warm cream
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 7,
     marginTop: 8,
     borderWidth: 1,
-    borderColor: '#F0D0A5', // Amber-bordered
+    borderColor: COLORS.amber, // Amber-bordered
     flexDirection: 'row',
     alignItems: 'center',
   },
   notesText: {
     fontSize: 11.5,
-    color: '#8D5B18', // Warm brown/amber
+    color: COLORS.amber, // Warm brown/amber
     ...FONTS.semibold,
     flex: 1,
   },

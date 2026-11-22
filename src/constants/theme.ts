@@ -1,40 +1,37 @@
+import { COLORS as THEME_COLORS } from '../theme/colors';
+
 export const COLORS = {
+  ...THEME_COLORS,
+
   // Brand Core Palette (White & Dark Forest Green Brand Identity)
-  forestGreen: '#0D381E',    // Deep Forest Green (Primary / Brand)
-  cream: '#F8F9F5',          // Crisp Off-White / Cream (Canvas / Background)
-  sage: '#EDF2EC',           // Sage Surface (Card Bodies & Containers)
-  amber: '#D78B30',          // Warm Amber (Active Highlights, Badges, Counters)
-  laurel: '#8C9E91',         // Laurel Muted (Borders, Secondary Text)
+  forestGreen: THEME_COLORS.forest,
+  cream: THEME_COLORS.canvas,
+  laurel: THEME_COLORS.slate,
 
   // Primary System Aliases (Compatible with entire application)
-  organic: '#0D381E',        // Deep Forest Green (Headers, Primary Text, Dark Surfaces)
-  ivory: '#F8F9F5',          // Crisp Off-White Canvas
-  apricot: '#D78B30',        // Warm Amber Accents
-  natural: '#8C9E91',        // Laurel Muted Borders & Labels
+  organic: THEME_COLORS.forest,
+  ivory: THEME_COLORS.canvas,
+  apricot: THEME_COLORS.amber,
+  natural: THEME_COLORS.slate,
 
   // Semantic & Auxiliary Colors
-  canvas: '#F8F9F5',
-  cardBg: '#EDF2EC',         // Sage Surface for Cards
-  surfaceLight: '#FFFFFF',   // Crisp White for Inputs & Prominent Popups
-  surfaceMuted: '#E4EDE3',   // Subtle Sage Tint
-  surfaceDark: '#0D381E',    // Forest Green Dark Card Surfaces
-  surfaceDarkHover: '#082614',
-  textPrimary: '#0D381E',
-  textSecondary: '#4A5E50',  // High-contrast Laurel Forest
-  textMuted: '#8C9E91',
-  textLight: '#F8F9F5',
-  border: '#8C9E91',
-  borderLight: '#D3DFD5',
-  accent: '#D78B30',
-  accentLight: '#FBEEDB',
-  veg: '#2E7D32',
-  vegBg: '#E8F5E9',
-  nonVeg: '#C62828',
-  nonVegBg: '#FFEBEE',
-  danger: '#D32F2F',
-  dangerBg: '#FFEBEE',
-  white: '#FFFFFF',
-  overlay: 'rgba(13, 56, 30, 0.65)',
+  cardBg: THEME_COLORS.sage,
+  surfaceLight: THEME_COLORS.white,
+  surfaceMuted: THEME_COLORS.sage,
+  surfaceDark: THEME_COLORS.forest,
+  surfaceDarkHover: THEME_COLORS.forest,
+  textPrimary: THEME_COLORS.forest,
+  textSecondary: THEME_COLORS.slate,
+  textMuted: THEME_COLORS.slate,
+  textLight: THEME_COLORS.canvas,
+  borderLight: THEME_COLORS.border,
+  accent: THEME_COLORS.amber,
+  accentLight: THEME_COLORS.amberTint,
+  veg: THEME_COLORS.success,
+  vegBg: THEME_COLORS.successTint,
+  nonVeg: THEME_COLORS.danger,
+  nonVegBg: THEME_COLORS.dangerTint,
+  dangerBg: THEME_COLORS.dangerTint,
 };
 
 export const SPACING = {
@@ -64,4 +61,3 @@ export const FONTS = {
     fontWeight: '800' as const,
   },
 };
-

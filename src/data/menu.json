@@ -169,5 +169,23 @@
     "isVeg": true,
     "description": "Green Apple Yuzu Citrus Soda",
     "imageUrl": "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=300&q=80"
+  },
+  {
+    "id": "mocktail-2",
+    "name": "Diet Coke",
+    "price": 50,
+    "category": "Mocktail",
+    "isVeg": true,
+    "description": "Chilled 300ml Diet Coke can",
+    "imageUrl": "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=300&q=80"
+  },
+  {
+    "id": "mocktail-3",
+    "name": "Water Bottle",
+    "price": 30,
+    "category": "Mocktail",
+    "isVeg": true,
+    "description": "Chilled packaged mineral water (500ml)",
+    "imageUrl": "https://images.unsplash.com/photo-1548839140-29a749e1bc4e?w=300&q=80"
   }
 ]

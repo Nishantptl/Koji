@@ -61,7 +61,9 @@ export interface Order {
   discountPercent?: number; // Discount percentage (e.g. 10 for 10%)
   totalAmount: number;    // Cumulative sum of all items in the ticket (after discount)
   amountPaid?: number;    // Actual money collected so far
+  paidAmount?: number;    // Alias for amountPaid
   balanceDue?: number;    // Outstanding dues: totalAmount - amountPaid
+  isPaid?: boolean;       // True if fully paid with zero balance due
   notified?: boolean;     // True if customer has been notified via WhatsApp for the whole order
   notifiedAt?: string;    // ISO timestamp when whole order WhatsApp notification was dispatched
 }

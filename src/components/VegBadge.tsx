@@ -8,7 +8,7 @@ interface VegBadgeProps {
 }
 
 export const VegBadge: React.FC<VegBadgeProps> = ({ isVeg, size = 16 }) => {
-  const color = isVeg ? COLORS.veg : COLORS.nonVeg;
+  const color = isVeg ? COLORS.success : COLORS.danger;
   const innerSize = Math.max(size * 0.45, 6);
 
   return (

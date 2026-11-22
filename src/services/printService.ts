@@ -1,4 +1,4 @@
-import { Linking, Alert } from 'react-native';
+import { Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Order, CartItem } from '../types';
 import { formatTime } from './storage';
@@ -621,7 +621,7 @@ export function encodeUtf8Base64(str: string): string {
  */
 export async function sendToRawBt(formattedText: string): Promise<boolean> {
   if (!formattedText.trim()) {
-    Alert.alert('Empty Print Job', 'There are no active items to print.');
+    console.warn('Empty Print Job: There are no active items to print.');
     return false;
   }
 
@@ -652,35 +652,23 @@ export async function sendToRawBt(formattedText: string): Promise<boolean> {
         await Linking.openURL(rawbtUrl);
         return true;
       } catch {
-        // RawBT is not installed on this Android device
-        Alert.alert(
-          'RawBT Print Service Required',
-          'To print KOTs and receipts to your thermal printer, please install the RawBT Print Service app from Google Play.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Install RawBT',
-              onPress: () => {
-                Linking.canOpenURL(playStoreMarketUrl)
-                  .then((canOpenMarket) => {
-                    if (canOpenMarket) {
-                      Linking.openURL(playStoreMarketUrl);
-                    } else {
-                      Linking.openURL(webPlayStoreUrl);
-                    }
-                  })
-                  .catch(() => {
-                    Linking.openURL(webPlayStoreUrl);
-                  });
-              },
-            },
-          ]
-        );
+        // RawBT is not installed on this Android device - automatically launch Play Store
+        Linking.canOpenURL(playStoreMarketUrl)
+          .then((canOpenMarket) => {
+            if (canOpenMarket) {
+              Linking.openURL(playStoreMarketUrl);
+            } else {
+              Linking.openURL(webPlayStoreUrl);
+            }
+          })
+          .catch(() => {
+            Linking.openURL(webPlayStoreUrl);
+          });
         return false;
       }
     }
   } catch (err: any) {
-    Alert.alert('Printing Error', err?.message || 'Could not dispatch print job to RawBT.');
+    console.warn('Printing Error: Could not dispatch print job to RawBT.', err);
     return false;
   }
 }
@@ -692,7 +680,7 @@ export async function printStationKots(order: Order, widthOverride?: number): Pr
   const width = widthOverride ?? (await getPaperWidthPreference());
   const content = formatAllStationKots(order, undefined, undefined, width);
   if (!content) {
-    Alert.alert('No Items', 'No active kitchen items found for this order.');
+    console.warn('No active kitchen items found for this order.');
     return false;
   }
   return sendToRawBt(content);

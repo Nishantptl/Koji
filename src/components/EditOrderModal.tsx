@@ -249,7 +249,7 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
           onPress={onClose}
           style={styles.closeButton}
         >
-          <X size={20} color={COLORS.organic} />
+          <X size={20} color={COLORS.forest} />
         </TouchableOpacity>
       </View>
 
@@ -343,7 +343,7 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
                         disabled={isCannotDecrement}
                         style={[styles.stepperBtn, isCannotDecrement && styles.btnDisabled]}
                       >
-                        <Minus size={13} color={COLORS.ivory} />
+                        <Minus size={13} color={COLORS.white} />
                       </TouchableOpacity>
                       <Text style={styles.stepperQtyText}>
                         {cartItem.quantity}
@@ -352,7 +352,7 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
                         onPress={() => handleIncrement(idx)}
                         style={styles.stepperBtn}
                       >
-                        <Plus size={13} color={COLORS.ivory} />
+                        <Plus size={13} color={COLORS.white} />
                       </TouchableOpacity>
                     </View>
 
@@ -380,11 +380,11 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
 
         {/* Quick Search */}
         <View style={styles.searchBar}>
-          <Search size={14} color={COLORS.natural} />
+          <Search size={14} color={COLORS.slate} />
           <TextInput
             style={styles.searchInput}
             placeholder="Search menu to add..."
-            placeholderTextColor={COLORS.natural}
+            placeholderTextColor={COLORS.slate}
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
@@ -409,7 +409,7 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
                 onPress={() => handleAddDish(dish)}
                 style={styles.addDishBtn}
               >
-                <Plus size={13} color={COLORS.organic} strokeWidth={2.4} />
+                <Plus size={13} color={COLORS.forest} strokeWidth={2.4} />
                 <Text style={styles.addDishBtnText}>Add</Text>
               </TouchableOpacity>
             </View>
@@ -424,7 +424,7 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
           onPress={handleSave}
           style={styles.saveButton}
         >
-          <CheckCircle2 size={18} color={COLORS.ivory} strokeWidth={2.4} />
+          <CheckCircle2 size={18} color={COLORS.white} strokeWidth={2.4} />
           <Text style={styles.saveButtonText}>
             {(() => {
               const currentPaid = typeof order.amountPaid === 'number'
@@ -485,7 +485,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheetContainer: {
-    backgroundColor: COLORS.ivory,
+    backgroundColor: COLORS.white,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: '92%',
@@ -503,7 +503,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.xl,
     paddingVertical: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight,
+    borderBottomColor: COLORS.border,
   },
   headerTitleRow: {
     flexDirection: 'row',
@@ -512,14 +512,14 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.heavy,
   },
   closeButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: COLORS.surfaceMuted,
+    backgroundColor: COLORS.sage,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -535,48 +535,48 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 11,
-    color: COLORS.textMuted,
+    color: COLORS.slate,
     ...FONTS.bold,
     letterSpacing: 0.8,
   },
   activeTotalText: {
     fontSize: 13,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.heavy,
   },
   hintText: {
     fontSize: 10,
-    color: COLORS.textMuted,
+    color: COLORS.slate,
     ...FONTS.regular,
   },
   emptyItemsBox: {
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: COLORS.sage,
     borderRadius: 10,
     padding: SPACING.md,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: COLORS.borderLight,
+    borderColor: COLORS.border,
     marginBottom: SPACING.md,
   },
   emptyItemsText: {
     fontSize: 12,
-    color: COLORS.textSecondary,
+    color: COLORS.slate,
     ...FONTS.regular,
   },
   ticketItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: COLORS.sage,
     borderRadius: 10,
     padding: SPACING.sm,
     marginBottom: 6,
     borderWidth: 1,
-    borderColor: COLORS.borderLight,
+    borderColor: COLORS.border,
   },
   ticketItemRowCancelled: {
     opacity: 0.5,
-    backgroundColor: '#F5EAE1',
+    backgroundColor: COLORS.dangerTint,
   },
   ticketItemLeft: {
     flexDirection: 'row',
@@ -589,16 +589,16 @@ const styles = StyleSheet.create({
   },
   ticketItemName: {
     fontSize: 13,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   textLineThrough: {
     textDecorationLine: 'line-through',
-    color: COLORS.textMuted,
+    color: COLORS.slate,
   },
   addedAtBadge: {
     fontSize: 9,
-    color: COLORS.apricot,
+    color: COLORS.amber,
     ...FONTS.heavy,
     marginTop: 1,
   },
@@ -610,7 +610,7 @@ const styles = StyleSheet.create({
   },
   servedBadge: {
     fontSize: 9,
-    color: COLORS.veg,
+    color: COLORS.success,
     ...FONTS.bold,
     marginTop: 1,
   },
@@ -621,14 +621,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginVertical: 8,
     paddingVertical: 3,
-    backgroundColor: '#FAF2DE',
+    backgroundColor: COLORS.amberTint,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: COLORS.apricot,
+    borderColor: COLORS.amber,
   },
   modalAddonDividerText: {
     fontSize: 10,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   ticketItemActions: {
@@ -638,7 +638,7 @@ const styles = StyleSheet.create({
   },
   ticketItemPrice: {
     fontSize: 13,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.bold,
     minWidth: 42,
     textAlign: 'right',
@@ -646,7 +646,7 @@ const styles = StyleSheet.create({
   miniStepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.organic,
+    backgroundColor: COLORS.forest,
     borderRadius: 14,
     paddingHorizontal: 4,
     paddingVertical: 2,
@@ -657,7 +657,7 @@ const styles = StyleSheet.create({
   },
   stepperQtyText: {
     fontSize: 12,
-    color: COLORS.ivory,
+    color: COLORS.white,
     ...FONTS.heavy,
     minWidth: 14,
     textAlign: 'center',
@@ -667,16 +667,16 @@ const styles = StyleSheet.create({
   },
   addSectionDivider: {
     height: 1,
-    backgroundColor: COLORS.borderLight,
+    backgroundColor: COLORS.border,
     marginVertical: SPACING.md,
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFDF7',
+    backgroundColor: COLORS.white,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: COLORS.borderLight,
+    borderColor: COLORS.border,
     paddingHorizontal: 10,
     height: 36,
     marginBottom: SPACING.sm,
@@ -684,16 +684,16 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 12,
-    color: COLORS.organic,
+    color: COLORS.forest,
     marginLeft: 6,
     ...FONTS.regular,
   },
   menuAddList: {
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: COLORS.sage,
     borderRadius: 12,
     padding: SPACING.sm,
     borderWidth: 1,
-    borderColor: COLORS.borderLight,
+    borderColor: COLORS.border,
     marginBottom: SPACING.lg,
   },
   menuAddRow: {
@@ -702,7 +702,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 7,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight,
+    borderBottomColor: COLORS.border,
   },
   menuAddLeft: {
     flexDirection: 'row',
@@ -715,28 +715,28 @@ const styles = StyleSheet.create({
   },
   menuAddName: {
     fontSize: 13,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.semibold,
   },
   menuAddPrice: {
     fontSize: 11,
-    color: COLORS.textSecondary,
+    color: COLORS.slate,
     ...FONTS.medium,
   },
   addDishBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    backgroundColor: COLORS.surfaceMuted,
+    backgroundColor: COLORS.sage,
     borderWidth: 1,
-    borderColor: COLORS.borderLight,
+    borderColor: COLORS.border,
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
   addDishBtnText: {
     fontSize: 11,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   footer: {
@@ -744,8 +744,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingBottom: Platform.OS === 'ios' ? 24 : 14,
     borderTopWidth: 1,
-    borderTopColor: COLORS.borderLight,
-    backgroundColor: COLORS.cream,
+    borderTopColor: COLORS.border,
+    backgroundColor: COLORS.canvas,
   },
   saveButton: {
     width: '100%',
@@ -754,11 +754,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: COLORS.organic,
+    backgroundColor: COLORS.forest,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    shadowColor: COLORS.organic,
+    shadowColor: COLORS.forest,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.2,
     shadowRadius: 5,
@@ -766,7 +766,7 @@ const styles = StyleSheet.create({
   },
   saveButtonText: {
     fontSize: 13.5,
-    color: COLORS.ivory,
+    color: COLORS.white,
     ...FONTS.heavy,
     textAlign: 'center',
     flexShrink: 1,

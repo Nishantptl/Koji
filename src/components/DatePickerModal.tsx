@@ -156,7 +156,7 @@ const DatePickerContent: React.FC<DatePickerContentProps> = ({
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.headerLeft}>
-                <CalendarIcon size={18} color={COLORS.apricot} />
+                <CalendarIcon size={18} color={COLORS.amber} />
                 <Text style={styles.titleText}>{title}</Text>
               </View>
               <TouchableOpacity
@@ -164,7 +164,7 @@ const DatePickerContent: React.FC<DatePickerContentProps> = ({
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 style={styles.closeBtn}
               >
-                <X size={18} color={COLORS.organic} />
+                <X size={18} color={COLORS.forest} />
               </TouchableOpacity>
             </View>
 
@@ -175,7 +175,7 @@ const DatePickerContent: React.FC<DatePickerContentProps> = ({
                 style={styles.navArrowBtn}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <ChevronLeft size={20} color={COLORS.organic} />
+                <ChevronLeft size={20} color={COLORS.forest} />
               </TouchableOpacity>
 
               <Text style={styles.navMonthYearText}>
@@ -187,7 +187,7 @@ const DatePickerContent: React.FC<DatePickerContentProps> = ({
                 style={styles.navArrowBtn}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <ChevronRight size={20} color={COLORS.organic} />
+                <ChevronRight size={20} color={COLORS.forest} />
               </TouchableOpacity>
             </View>
 
@@ -274,7 +274,7 @@ const DatePickerContent: React.FC<DatePickerContentProps> = ({
                   style={styles.confirmBtn}
                   activeOpacity={0.85}
                 >
-                  <Check size={16} color={COLORS.ivory} strokeWidth={2.6} />
+                  <Check size={16} color={COLORS.white} strokeWidth={2.6} />
                   <Text style={styles.confirmBtnText}>Confirm</Text>
                 </TouchableOpacity>
               </View>
@@ -316,7 +316,7 @@ export const DatePickerModal: React.FC<DatePickerModalProps> = ({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(13, 56, 30, 0.6)', // Tinted with Forest Green #0D381E
+    backgroundColor: COLORS.overlay,
     justifyContent: 'center',
     alignItems: 'center',
     padding: SPACING.lg,
@@ -324,12 +324,12 @@ const styles = StyleSheet.create({
   sheetContainer: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#FFFDF9',
+    backgroundColor: COLORS.white,
     borderRadius: 18,
     borderWidth: 1.5,
-    borderColor: COLORS.borderLight,
+    borderColor: COLORS.border,
     padding: SPACING.lg,
-    shadowColor: COLORS.organic,
+    shadowColor: COLORS.forest,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.18,
     shadowRadius: 10,
@@ -341,7 +341,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingBottom: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight,
+    borderBottomColor: COLORS.border,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -350,7 +350,7 @@ const styles = StyleSheet.create({
   },
   titleText: {
     fontSize: 15,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   closeBtn: {
@@ -366,13 +366,13 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: COLORS.surfaceMuted,
+    backgroundColor: COLORS.sage,
     alignItems: 'center',
     justifyContent: 'center',
   },
   navMonthYearText: {
     fontSize: 15,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   daysOfWeekRow: {
@@ -380,18 +380,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight,
+    borderBottomColor: COLORS.border,
     marginBottom: 4,
   },
   dayOfWeekText: {
     width: 36,
     textAlign: 'center',
     fontSize: 11,
-    color: COLORS.natural,
+    color: COLORS.slate,
     ...FONTS.bold,
   },
   dayOfWeekWeekend: {
-    color: COLORS.apricot,
+    color: COLORS.amber,
   },
   gridContainer: {
     flexDirection: 'row',
@@ -410,24 +410,24 @@ const styles = StyleSheet.create({
     borderRadius: 19,
   },
   dayButtonSelected: {
-    backgroundColor: COLORS.apricot,
+    backgroundColor: COLORS.amber,
   },
   dayButtonToday: {
     borderWidth: 1.5,
-    borderColor: COLORS.apricot,
-    backgroundColor: '#FAF2DE',
+    borderColor: COLORS.amber,
+    backgroundColor: COLORS.amberTint,
   },
   dayText: {
     fontSize: 13,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.medium,
   },
   dayTextSelected: {
-    color: COLORS.ivory,
+    color: COLORS.white,
     ...FONTS.heavy,
   },
   dayTextToday: {
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   selectedDateBanner: {
@@ -435,22 +435,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#FAF2DE',
+    backgroundColor: COLORS.amberTint,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: COLORS.borderLight,
+    borderColor: COLORS.border,
     paddingVertical: 7,
     marginTop: SPACING.sm,
     marginBottom: SPACING.md,
   },
   selectedDateLabel: {
     fontSize: 11,
-    color: COLORS.natural,
+    color: COLORS.slate,
     ...FONTS.medium,
   },
   selectedDateValue: {
     fontSize: 13,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   footerRow: {
@@ -462,13 +462,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: COLORS.surfaceMuted,
+    backgroundColor: COLORS.sage,
     borderWidth: 1,
-    borderColor: COLORS.borderLight,
+    borderColor: COLORS.border,
   },
   todayBtnText: {
     fontSize: 12,
-    color: COLORS.organic,
+    color: COLORS.forest,
     ...FONTS.semibold,
   },
   footerRightButtons: {
@@ -482,21 +482,21 @@ const styles = StyleSheet.create({
   },
   cancelBtnText: {
     fontSize: 12,
-    color: COLORS.natural,
+    color: COLORS.slate,
     ...FONTS.medium,
   },
   confirmBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: COLORS.organic,
+    backgroundColor: COLORS.forest,
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 8,
   },
   confirmBtnText: {
     fontSize: 12,
-    color: COLORS.ivory,
+    color: COLORS.white,
     ...FONTS.bold,
   },
 });

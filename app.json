@@ -15,14 +15,24 @@
         "backgroundColor": "#F8F9F5"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.niishhh.kojipos"
+      "package": "com.niishhh.kojipos",
+      "permissions": [
+        "READ_CONTACTS",
+        "WRITE_CONTACTS"
+      ]
     },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
       "expo-sharing",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow Kōji to access your contacts to sync customer phone numbers."
+        }
+      ]
     ],
     "extra": {
       "eas": {

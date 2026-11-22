@@ -89,14 +89,14 @@ export const PrintOrderModal: React.FC<PrintOrderModalProps> = ({
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   style={styles.closeBtn}
                 >
-                  <X size={18} color={COLORS.forestGreen} />
+                  <X size={18} color={COLORS.forest} />
                 </TouchableOpacity>
               </View>
 
               {/* Detected Stations Banner */}
               <View style={styles.stationsBanner}>
                 <View style={styles.stationsBannerHeader}>
-                  <Layers size={13} color={COLORS.forestGreen} />
+                  <Layers size={13} color={COLORS.forest} />
                   <Text style={styles.stationsBannerTitle}>
                     ACTIVE KITCHEN STATIONS ({stations.length})
                   </Text>
@@ -129,7 +129,7 @@ export const PrintOrderModal: React.FC<PrintOrderModalProps> = ({
                 ]}
               >
                 <View style={styles.optionIconContainer}>
-                  <Printer size={22} color={COLORS.forestGreen} strokeWidth={2.2} />
+                  <Printer size={22} color={COLORS.forest} strokeWidth={2.2} />
                 </View>
                 <View style={styles.optionTextGroup}>
                   <Text style={styles.optionTitle}>
@@ -148,7 +148,7 @@ export const PrintOrderModal: React.FC<PrintOrderModalProps> = ({
                 style={styles.optionCard}
               >
                 <View style={styles.optionIconContainer}>
-                  <Receipt size={22} color={COLORS.forestGreen} strokeWidth={2.2} />
+                  <Receipt size={22} color={COLORS.forest} strokeWidth={2.2} />
                 </View>
                 <View style={styles.optionTextGroup}>
                   <Text style={styles.optionTitle}>
@@ -170,7 +170,7 @@ export const PrintOrderModal: React.FC<PrintOrderModalProps> = ({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(13, 56, 30, 0.65)',
+    backgroundColor: COLORS.overlay,
     justifyContent: 'center',
     alignItems: 'center',
     padding: SPACING.lg,
@@ -181,9 +181,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderRadius: 22,
     borderWidth: 1.5,
-    borderColor: COLORS.forestGreen,
+    borderColor: COLORS.forest,
     padding: SPACING.lg,
-    shadowColor: COLORS.forestGreen,
+    shadowColor: COLORS.forest,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.2,
     shadowRadius: 14,
@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingBottom: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight,
+    borderBottomColor: COLORS.border,
     marginBottom: SPACING.sm,
   },
   headerLeft: {
@@ -206,29 +206,29 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 15,
-    color: COLORS.forestGreen,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   headerSubtitle: {
     fontSize: 11,
-    color: COLORS.natural,
+    color: COLORS.slate,
     ...FONTS.medium,
   },
   closeBtn: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: COLORS.surfaceMuted,
+    backgroundColor: COLORS.sage,
     alignItems: 'center',
     justifyContent: 'center',
   },
   stationsBanner: {
-    backgroundColor: COLORS.surfaceMuted,
+    backgroundColor: COLORS.sage,
     borderRadius: 12,
     padding: 10,
     marginBottom: SPACING.md,
     borderWidth: 1,
-    borderColor: 'rgba(140, 158, 145, 0.3)',
+    borderColor: COLORS.border,
   },
   stationsBannerHeader: {
     flexDirection: 'row',
@@ -238,7 +238,7 @@ const styles = StyleSheet.create({
   },
   stationsBannerTitle: {
     fontSize: 10,
-    color: COLORS.forestGreen,
+    color: COLORS.forest,
     ...FONTS.heavy,
     letterSpacing: 0.5,
   },
@@ -250,19 +250,19 @@ const styles = StyleSheet.create({
   stationPill: {
     backgroundColor: COLORS.white,
     borderWidth: 1,
-    borderColor: COLORS.forestGreen,
+    borderColor: COLORS.forest,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
   },
   stationPillText: {
     fontSize: 10.5,
-    color: COLORS.forestGreen,
+    color: COLORS.forest,
     ...FONTS.bold,
   },
   noStationsText: {
     fontSize: 11,
-    color: COLORS.natural,
+    color: COLORS.slate,
     fontStyle: 'italic',
   },
   optionCard: {
@@ -271,8 +271,8 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#D5DFD8',
-    backgroundColor: '#F8F9F5',
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.canvas,
     marginBottom: 10,
     gap: 12,
   },
@@ -283,24 +283,24 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 10,
-    backgroundColor: COLORS.surfaceMuted,
+    backgroundColor: COLORS.sage,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#D5DFD8',
+    borderColor: COLORS.border,
   },
   optionTextGroup: {
     flex: 1,
   },
   optionTitle: {
     fontSize: 14,
-    color: COLORS.forestGreen,
+    color: COLORS.forest,
     ...FONTS.bold,
     marginBottom: 2,
   },
   optionSubtitle: {
     fontSize: 11,
-    color: COLORS.natural,
+    color: COLORS.slate,
     ...FONTS.regular,
   },
 });

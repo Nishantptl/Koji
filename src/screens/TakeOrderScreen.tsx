@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   TextInput,
   StyleSheet,
-  Alert,
   AppState,
 } from 'react-native';
 import {
@@ -27,6 +26,7 @@ import { MenuItemCard } from '../components/MenuItemCard';
 import { CheckoutModal } from '../components/CheckoutModal';
 import { PaymentModal } from '../components/PaymentModal';
 import { TokenBadge } from '../components/TokenBadge';
+import { KojiConfirmModal, KojiConfirmModalProps } from '../components/KojiConfirmModal';
 import { useCart } from '../context/CartContext';
 import { saveOrder, getNextToken, getMenuItems, updateOrderPayment } from '../services/storage';
 import { printStationKots } from '../services/printService';
@@ -51,6 +51,7 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
   const [isCheckoutOpen, setIsCheckoutOpen] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [payingOrder, setPayingOrder] = useState<Order | null>(null);
+  const [confirmModal, setConfirmModal] = useState<KojiConfirmModalProps | null>(null);
 
   // Global draft cart context (persisted across tabs & app reloads)
   const {
@@ -139,25 +140,21 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
   const handleClearCart = () => {
     if (totalQuantity === 0) return;
 
-    Alert.alert(
-      'Clear Current Cart?',
-      'All selected items in this order will be removed.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear Cart',
-          style: 'destructive',
-          onPress: () => {
-            try {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            } catch {
-              // Ignore
-            }
-            clearCart();
-          },
-        },
-      ]
-    );
+    setConfirmModal({
+      visible: true,
+      variant: 'danger',
+      badgeLabel: 'Reset Cart',
+      title: 'Reset Current Cart?',
+      message: 'All selected dishes in this order will be removed. Are you sure you want to clear the cart?',
+      highlightText: `${totalQuantity} dishes in cart (₹${totalAmount})`,
+      primaryLabel: 'Yes, Reset Cart',
+      cancelLabel: 'Keep Cart',
+      onPrimaryPress: () => {
+        setConfirmModal(null);
+        clearCart();
+      },
+      onClose: () => setConfirmModal(null),
+    });
   };
 
   const handleClearSearch = () => {
@@ -165,7 +162,20 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
   };
 
   const handleOpenReview = () => {
-    if (totalQuantity === 0) return;
+    if (totalQuantity === 0) {
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'Missing Details',
+        title: 'Cart is Empty',
+        message: 'Please add at least one dish to the cart before reviewing.',
+        primaryLabel: 'Got It',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
+      return;
+    }
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {
@@ -211,7 +221,9 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
         paymentMethod: details.paymentMethod,
         paymentStatus: isCash ? 'Completed' : 'Pending',
         amountPaid: isCash ? finalTotal : 0,
+        paidAmount: isCash ? finalTotal : 0,
         balanceDue: isCash ? 0 : finalTotal,
+        isPaid: isCash,
       };
 
       const saved = await saveOrder(orderPayload);
@@ -234,14 +246,30 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
       if (isUpi) {
         setPayingOrder(saved);
       } else {
-        Alert.alert(
-          'Order Saved! 🎉',
-          `Token ${saved.token} has been logged in kitchen (Total: ₹${saved.totalAmount}${isCash ? ' • Paid via Cash' : ''}).`,
-          [{ text: 'Take Next Order', style: 'default' }]
-        );
+        setConfirmModal({
+          visible: true,
+          variant: 'forest',
+          badgeLabel: 'Order Saved',
+          title: 'Order Saved! 🎉',
+          message: `Token ${saved.token} has been logged in kitchen (Total: ₹${saved.totalAmount}${isCash ? ' • Paid via Cash' : ''}).`,
+          primaryLabel: 'Take Next Order',
+          cancelLabel: '',
+          onPrimaryPress: () => setConfirmModal(null),
+          onClose: () => setConfirmModal(null),
+        });
       }
     } catch (err: any) {
-      Alert.alert('Save Failed', err?.message || 'Unable to save order. Please retry.');
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'Save Failed',
+        title: 'Unable to Save Order',
+        message: err?.message || 'Unable to save order. Please retry.',
+        primaryLabel: 'Got It',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -354,7 +382,7 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
                 accessibilityLabel="Reset cart"
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <RotateCcw size={20} color="#D9383A" strokeWidth={2.4} />
+                <RotateCcw size={20} color={COLORS.danger} strokeWidth={2.4} />
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -395,6 +423,17 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
           setPayingOrder(null);
         }}
       />
+
+      {/* Universal Kōji Confirmation / Notice Modal */}
+      {confirmModal && (
+        <KojiConfirmModal
+          {...confirmModal}
+          onClose={() => {
+            confirmModal.onClose?.();
+            setConfirmModal(null);
+          }}
+        />
+      )}
     </View>
   );
 };
@@ -435,7 +474,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFDF7',
+    backgroundColor: COLORS.white,
     borderRadius: 12,
     borderWidth: 1.2,
     borderColor: 'rgba(159, 136, 111, 0.4)',
@@ -464,11 +503,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1.2,
     borderColor: 'rgba(159, 136, 111, 0.4)',
-    backgroundColor: '#FFFDF7',
+    backgroundColor: COLORS.white,
   },
   vegChipActive: {
     borderColor: COLORS.veg,
-    backgroundColor: '#EBF6EC',
+    backgroundColor: COLORS.successTint,
   },
   vegChipText: {
     fontSize: 12,
@@ -537,7 +576,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: COLORS.white,
     borderRadius: 20,
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.md,
