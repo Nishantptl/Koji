@@ -46,8 +46,8 @@ The system bridges counter sales and line cooks through an integrated FIFO visua
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/Nisarg-13/koji-pos.git
-   cd koji-pos
+   git clone https://github.com/Nishantptl/Koji.git
+   cd Koji
    ```
 
 2. **Install project dependencies:**

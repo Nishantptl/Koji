@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Kōji",
-    "slug": "koji-pos",
+    "slug": "koji",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
