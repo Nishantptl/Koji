@@ -1,5 +1,6 @@
 # Kōji POS - Street-Food Cart Point of Sale
 
+[![Download APK](https://img.shields.io/badge/Download-APK%20v1.0.0-0D381E?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Nishantptl/Koji/releases/download/v1.0.0/Koji-v1.0.0.apk)
 [![Platform](https://img.shields.io/badge/Platform-Expo%20%7C%20React%20Native-000000?style=flat-square&logo=expo&logoColor=white)](https://expo.dev)
 [![Language](https://img.shields.io/badge/Language-TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Storage](https://img.shields.io/badge/Storage-AsyncStorage-1A1A1A?style=flat-square)](https://react-native-async-storage.github.io/async-storage/)
