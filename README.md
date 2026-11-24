@@ -18,16 +18,16 @@ The system bridges counter sales and line cooks through an integrated FIFO visua
 ## 📱 Screenshots
 
 <div align="center">
-  <img src="screenshots/Screenshot_1.jpg" width="16%" alt="Screenshot_1"/>
-  <img src="screenshots/Screenshot_2.jpg" width="16%" alt="Screenshot_2"/>
-  <img src="screenshots/Screenshot_3.jpg" width="16%" alt="Screenshot_3"/>
-  <img src="screenshots/Screenshot_4.jpg" width="16%" alt="Screenshot_4"/>
-  <img src="screenshots/Screenshot_5.jpg" width="16%" alt="Screenshot_5"/>
-  <img src="screenshots/Screenshot_6.jpg" width="16%" alt="Screenshot_6"/>
-  <img src="screenshots/Screenshot_7.jpg" width="16%" alt="Screenshot_7"/>
-  <img src="screenshots/Screenshot_8.jpg" width="16%" alt="Screenshot_8"/>
-  <img src="screenshots/Screenshot_9.jpg" width="16%" alt="Screenshot_9"/>
-  <img src="screenshots/Screenshot_10.jpg" width="16%" alt="Screenshot_10"/>
+  <img src="screenshots/Screenshot_1.jpg" width="18%" alt="Screenshot_1"/>
+  <img src="screenshots/Screenshot_2.jpg" width="18%" alt="Screenshot_2"/>
+  <img src="screenshots/Screenshot_3.jpg" width="18%" alt="Screenshot_3"/>
+  <img src="screenshots/Screenshot_4.jpg" width="18%" alt="Screenshot_4"/>
+  <img src="screenshots/Screenshot_5.jpg" width="18%" alt="Screenshot_5"/>
+  <img src="screenshots/Screenshot_6.jpg" width="18%" alt="Screenshot_6"/>
+  <img src="screenshots/Screenshot_7.jpg" width="18%" alt="Screenshot_7"/>
+  <img src="screenshots/Screenshot_8.jpg" width="18%" alt="Screenshot_8"/>
+  <img src="screenshots/Screenshot_9.jpg" width="18%" alt="Screenshot_9"/>
+  <img src="screenshots/Screenshot_10.jpg" width="18%" alt="Screenshot_10"/>
 </div>
 
 ---
