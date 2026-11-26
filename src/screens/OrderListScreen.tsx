@@ -8,12 +8,16 @@ import {
   RefreshControl,
   TextInput,
   AppState,
+  Platform,
+  LayoutAnimation,
 } from 'react-native';
 import {
   Trash2,
   Receipt,
   Search,
   Sparkles,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -23,8 +27,14 @@ import { OrderTicketCard } from '../components/OrderTicketCard';
 import { EditOrderModal } from '../components/EditOrderModal';
 import { PaymentModal } from '../components/PaymentModal';
 import { PrintOrderModal } from '../components/PrintOrderModal';
+import { RefundModal } from '../components/RefundModal';
 import { KojiConfirmModal, KojiConfirmModalProps } from '../components/KojiConfirmModal';
-import { printAddonStationKots } from '../services/printService';
+import {
+  printAddonStationKots,
+  printStationKots,
+  printCancelledItemKot,
+  printCancelledOrderKot,
+} from '../services/printService';
 import {
   sendDishReadyNotification,
   sendOrderReadyNotification,
@@ -34,10 +44,15 @@ import {
   getOrders,
   getDailyMetrics,
   updateOrderStatus,
-  updateOrderItemStatus,
   incrementItemServedQuantity,
   updateOrderPayment,
   updateOrderItems,
+  cancelOrderItemWithRefund,
+  cancelFullOrder,
+  updateOrderItemsWithRefund,
+  getOrderUpiPaid,
+  getOrderCashPaid,
+  SplitPaymentInput,
   markOrderItemNotified,
   markOrderNotified,
   markSpecificItemsNotified,
@@ -73,16 +88,34 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
     completedOrders: 0,
   });
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [isShiftStatsExpanded, setIsShiftStatsExpanded] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('active');
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
-  const [payingOrder, setPayingOrder] = useState<Order | null>(null);
+  const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
+  const payingOrder = useMemo(
+    () => (payingOrderId ? orders.find((o) => o.id === payingOrderId) || null : null),
+    [orders, payingOrderId]
+  );
   const [markDoneAfterPaymentId, setMarkDoneAfterPaymentId] = useState<string | null>(null);
   const [printingOrder, setPrintingOrder] = useState<Order | null>(null);
   const [pendingCompletionOrder, setPendingCompletionOrder] = useState<Order | null>(null);
   const [pendingDishIncrement, setPendingDishIncrement] = useState<{ orderId: string; itemIndex: number } | null>(null);
   const [pendingDishIncrementAfterPayment, setPendingDishIncrementAfterPayment] = useState<{ orderId: string; itemIndex: number } | null>(null);
   const [confirmModal, setConfirmModal] = useState<KojiConfirmModalProps | null>(null);
+  const [refundModal, setRefundModal] = useState<{
+    visible: boolean;
+    order: Order;
+    refundAmount: number;
+    reason?: string;
+    isFullOrderCancellation?: boolean;
+    itemIndex?: number;
+    decrementOnly?: boolean;
+    cancelledItem?: CartItem;
+    cancelledQty?: number;
+    updatedItems?: CartItem[];
+    orderNotes?: string;
+  } | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -126,6 +159,16 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
       subscription.remove();
     };
   }, [loadData]);
+
+  const toggleShiftStats = () => {
+    try {
+      Haptics.selectionAsync();
+    } catch {}
+    if (Platform.OS === 'ios' || Platform.OS === 'android') {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
+    setIsShiftStatsExpanded((prev) => !prev);
+  };
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -176,124 +219,261 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
     await markOrderDoneAction(order.id);
   };
 
-  // Cancel item confirmation prompt
-  const handlePromptCancelItem = (order: Order, itemIndex: number) => {
-    const item = order.items[itemIndex];
+  // Full-order cancellation prompt
+  const handlePromptCancelFullOrder = (order: Order) => {
     const cleanToken = order.token.replace(/^#+/, '');
-    const dishSummary = item
-      ? `Token #${cleanToken} • ${item.quantity}x ${item.name} (₹${item.price * item.quantity})`
-      : `Token #${cleanToken} • Selected Item`;
+    const currentUpi = getOrderUpiPaid(order);
+    const currentCash = getOrderCashPaid(order);
+    const alreadyPaid = currentUpi + currentCash;
 
     setConfirmModal({
       visible: true,
       variant: 'danger',
-      badgeLabel: 'Cancel Item',
-      title: 'Cancel Dish?',
-      message:
-        'Are you sure you want to cancel this dish? It will be removed from the kitchen prep queue and bill totals will be updated.',
-      highlightText: dishSummary,
-      primaryLabel: 'Cancel Item',
-      cancelLabel: 'Keep Dish',
+      badgeLabel: 'Cancel Order',
+      title: 'Cancel Entire Order?',
+      message: `Are you sure you want to cancel Token #${cleanToken}? This will stop all kitchen preparation and update shift metrics.`,
+      heroLabel: alreadyPaid > 0 ? 'PAID AMOUNT' : undefined,
+      heroAmount: alreadyPaid > 0 ? `₹${alreadyPaid.toLocaleString('en-IN')}` : undefined,
+      primaryLabel: alreadyPaid > 0 ? 'Proceed to Refund' : 'Yes, Cancel Order',
+      cancelLabel: 'Keep Order',
       onPrimaryPress: async () => {
         setConfirmModal(null);
-        await handleConfirmCancelItem(order, itemIndex);
+        if (alreadyPaid > 0) {
+          setRefundModal({
+            visible: true,
+            order,
+            refundAmount: alreadyPaid,
+            reason: 'Entire Order Cancelled',
+            isFullOrderCancellation: true,
+          });
+        } else {
+          try {
+            const updated = await cancelFullOrder(order.id, 'Cash', 'Cancelled by cashier');
+            setOrders(updated);
+            const newMetrics = await getDailyMetrics();
+            setMetrics(newMetrics);
+            onOrdersChanged?.();
+            await printCancelledOrderKot(order).catch(() => {});
+          } catch (err: any) {
+            setConfirmModal({
+              visible: true,
+              variant: 'amber',
+              badgeLabel: 'Action Failed',
+              title: 'Cancel Failed',
+              message: err?.message || 'Could not cancel order.',
+              primaryLabel: 'OK',
+              cancelLabel: '',
+              onPrimaryPress: () => setConfirmModal(null),
+              onClose: () => setConfirmModal(null),
+            });
+          }
+        }
       },
       onClose: () => setConfirmModal(null),
     });
   };
 
-  // Auto-complete order & trigger unpaid alert when cancelling the last remaining pending dish
-  const handleConfirmCancelItem = async (order: Order, itemIndex: number) => {
+  // Single-dish cancellation prompt (handles decrement by 1 vs cancel entire dish)
+  const handlePromptCancelItem = (order: Order, itemIndex: number) => {
+    const item = order.items[itemIndex];
+    if (!item) return;
+    const cleanToken = order.token.replace(/^#+/, '');
+    const dishSummary = `Token #${cleanToken} • ${item.quantity}x ${item.name} (₹${item.price * item.quantity})`;
+
+    if (item.quantity > 1) {
+      setConfirmModal({
+        visible: true,
+        variant: 'danger',
+        badgeLabel: 'Cancel Dish',
+        title: `Cancel ${item.name}?`,
+        message: `This dish has quantity ${item.quantity}. Would you like to decrement by 1 or cancel the entire dish?`,
+        highlightText: dishSummary,
+        primaryLabel: 'Decrement by 1',
+        secondaryLabel: `Cancel All (${item.quantity}x)`,
+        cancelLabel: 'Keep Dish',
+        onPrimaryPress: async () => {
+          setConfirmModal(null);
+          await executeItemCancellation(order, itemIndex, true);
+        },
+        onSecondaryPress: async () => {
+          setConfirmModal(null);
+          await executeItemCancellation(order, itemIndex, false);
+        },
+        onClose: () => setConfirmModal(null),
+      });
+    } else {
+      setConfirmModal({
+        visible: true,
+        variant: 'danger',
+        badgeLabel: 'Cancel Dish',
+        title: 'Cancel Dish?',
+        message: 'Are you sure you want to cancel this dish? It will be removed from the kitchen prep queue.',
+        highlightText: dishSummary,
+        primaryLabel: 'Cancel Dish',
+        cancelLabel: 'Keep Dish',
+        onPrimaryPress: async () => {
+          setConfirmModal(null);
+          await executeItemCancellation(order, itemIndex, false);
+        },
+        onClose: () => setConfirmModal(null),
+      });
+    }
+  };
+
+  // Executes single-dish cancellation or decrement, calculating refund requirements
+  const executeItemCancellation = async (
+    order: Order,
+    itemIndex: number,
+    decrementOnly: boolean
+  ) => {
     try {
-      const updatedItems = order.items.map((it, idx) => {
+      const item = order.items[itemIndex];
+      if (!item) return;
+
+      const currentUpi = getOrderUpiPaid(order);
+      const currentCash = getOrderCashPaid(order);
+      const alreadyPaid = currentUpi + currentCash;
+
+      // Simulate new grandTotal after reduction
+      const testItems = order.items.map((it, idx) => {
         if (idx === itemIndex) {
+          if (decrementOnly && it.quantity > 1) {
+            return { ...it, quantity: it.quantity - 1 };
+          }
           return { ...it, status: 'cancelled' as ItemStatus };
         }
         return it;
       });
-
-      const rawSubtotal = recalculateOrderTotal(updatedItems);
+      const rawSubtotal = recalculateOrderTotal(testItems);
       const discount = Math.min(rawSubtotal, Math.max(0, order.discount || 0));
-      const updatedTotalAmount = Math.max(0, rawSubtotal - discount);
+      const newGrandTotal = Math.max(0, rawSubtotal - discount);
 
-      const paidAmount = typeof order.paidAmount === 'number'
-        ? order.paidAmount
-        : (typeof order.amountPaid === 'number'
-          ? order.amountPaid
-          : (order.paymentStatus === 'Completed' ? order.totalAmount : 0));
-
-      const updatedDueAmount = Math.max(0, updatedTotalAmount - paidAmount);
-      const isPaid = Boolean(order.isPaid ?? (order.paymentStatus === 'Completed' && updatedDueAmount === 0));
-
-      const remainingActiveItems = updatedItems.filter((i) => i.status !== 'cancelled');
-
-      // 1. If all items in the order were cancelled, handle as a cancelled/closed order with ₹0 due
-      if (remainingActiveItems.length === 0) {
-        await updateOrderItemStatus(order.id, itemIndex, 'cancelled');
-        const updated = await updateOrderStatus(order.id, 'completed');
-        setOrders(updated);
-        const newMetrics = await getDailyMetrics();
-        setMetrics(newMetrics);
-        onOrdersChanged?.();
+      if (alreadyPaid > newGrandTotal) {
+        const refundDue = alreadyPaid - newGrandTotal;
+        setRefundModal({
+          visible: true,
+          order,
+          refundAmount: refundDue,
+          reason: `${item.name} (${decrementOnly ? '1x' : `${item.quantity}x`}) Cancelled`,
+          isFullOrderCancellation: false,
+          itemIndex,
+          decrementOnly,
+          cancelledItem: item,
+          cancelledQty: decrementOnly ? 1 : item.quantity,
+        });
         return;
       }
 
-      // Check if all remaining non-cancelled items in the order are now 100% done
-      const allRemainingDone = remainingActiveItems.every((i) =>
-        i.status === 'completed' ||
-        (typeof i.servedQuantity === 'number' && i.servedQuantity >= (i.quantity || 1))
-      );
-
-      // 2. If cancelling this item still leaves pending dishes in preparation
-      if (!allRemainingDone) {
-        const updated = await updateOrderItemStatus(order.id, itemIndex, 'cancelled');
-        setOrders(updated);
-        const newMetrics = await getDailyMetrics();
-        setMetrics(newMetrics);
-        onOrdersChanged?.();
-        return;
-      }
-
-      // 3. Cancelling this item leaves ONLY already-completed dishes (entire order is ready to complete)
-      const updatedOrders = await updateOrderItemStatus(order.id, itemIndex, 'cancelled');
-      setOrders(updatedOrders);
+      // No refund required (unpaid or partially paid where balance due remains >= 0)
+      const updated = await cancelOrderItemWithRefund({
+        orderId: order.id,
+        itemIndex,
+        decrementOnly,
+      });
+      setOrders(updated);
       const newMetrics = await getDailyMetrics();
       setMetrics(newMetrics);
       onOrdersChanged?.();
 
-      // If updatedDueAmount === 0 (already paid in full or overpaid), auto-complete order immediately
-      if (isPaid && updatedDueAmount === 0) {
-        await markOrderDoneAction(order.id);
-        return;
-      }
-
-      // If updatedDueAmount > 0 (!isPaid || updatedDueAmount > 0), trigger Payment Pending KojiConfirmModal
-      const refreshedOrder: Order = updatedOrders.find((o) => o.id === order.id) || {
-        ...order,
-        items: updatedItems,
-        totalAmount: updatedTotalAmount,
-        balanceDue: updatedDueAmount,
-        paidAmount,
-        amountPaid: paidAmount,
-        isPaid: false,
-      };
-
-      setPendingDishIncrement(null);
-      setPendingCompletionOrder({
-        ...refreshedOrder,
-        totalAmount: updatedTotalAmount,
-        balanceDue: updatedDueAmount,
-        paidAmount,
-        amountPaid: paidAmount,
-        isPaid: false,
-      });
+      // Print cancelled item KOT alert
+      await printCancelledItemKot(order, item, decrementOnly ? 1 : item.quantity).catch(() => {});
     } catch (err: any) {
       setConfirmModal({
         visible: true,
         variant: 'amber',
         badgeLabel: 'Action Failed',
-        title: 'Action Failed',
+        title: 'Cancel Failed',
         message: err?.message || 'Could not cancel item.',
+        primaryLabel: 'OK',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
+    }
+  };
+
+  // Called when EditOrderModal reduces items below alreadyPaid
+  const handleEditOrderRequiresRefund = (
+    order: Order,
+    updatedItems: CartItem[],
+    refundDue: number,
+    orderNotes?: string,
+    shouldPrintKot?: boolean
+  ) => {
+    setRefundModal({
+      visible: true,
+      order,
+      refundAmount: refundDue,
+      reason: 'Items reduced on paid ticket',
+      isFullOrderCancellation: false,
+      updatedItems,
+      orderNotes,
+    });
+  };
+
+  // Confirms and settles refund via Cash or UPI from RefundModal
+  const handleConfirmRefund = async (
+    refundMethod: 'Cash' | 'UPI',
+    shouldPrintKot: boolean
+  ) => {
+    if (!refundModal) return;
+    try {
+      const {
+        order,
+        isFullOrderCancellation,
+        itemIndex,
+        decrementOnly,
+        cancelledItem,
+        cancelledQty,
+        updatedItems,
+        orderNotes,
+      } = refundModal;
+
+      if (isFullOrderCancellation) {
+        const updated = await cancelFullOrder(order.id, refundMethod, 'Cancelled by cashier');
+        setOrders(updated);
+        if (shouldPrintKot) {
+          await printCancelledOrderKot(order).catch(() => {});
+        }
+      } else if (updatedItems) {
+        const updated = await updateOrderItemsWithRefund(
+          order.id,
+          updatedItems,
+          orderNotes,
+          refundMethod
+        );
+        setOrders(updated);
+        if (shouldPrintKot) {
+          await printStationKots({
+            ...order,
+            items: updatedItems,
+            notes: orderNotes || order.notes,
+          }).catch(() => {});
+        }
+      } else if (typeof itemIndex === 'number') {
+        const updated = await cancelOrderItemWithRefund({
+          orderId: order.id,
+          itemIndex,
+          decrementOnly,
+          refundMethod,
+        });
+        setOrders(updated);
+        if (shouldPrintKot && cancelledItem) {
+          await printCancelledItemKot(order, cancelledItem, cancelledQty || 1).catch(() => {});
+        }
+      }
+
+      const newMetrics = await getDailyMetrics();
+      setMetrics(newMetrics);
+      onOrdersChanged?.();
+      setRefundModal(null);
+    } catch (err: any) {
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'Refund Failed',
+        title: 'Refund Settlement Failed',
+        message: err?.message || 'Could not record refund.',
         primaryLabel: 'OK',
         cancelLabel: '',
         onPrimaryPress: () => setConfirmModal(null),
@@ -371,18 +551,21 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
     }
   };
 
-  // Payment status update (Cash or UPI, supporting split payments)
+  // Payment status update (Cash, UPI, or Split payment)
   const handlePaymentCompleted = async (
     orderId: string,
     method: PaymentMethod,
-    amount?: number
+    amount?: number,
+    splitDetails?: SplitPaymentInput
   ) => {
     try {
       let finalOrders = await updateOrderPayment(
         orderId,
-        method === 'Cash' ? 'Cash' : 'UPI',
-        amount
+        method,
+        amount,
+        splitDetails
       );
+      setPayingOrderId(null);
 
       // If completing final dish triggered this payment, increment that dish now
       if (pendingDishIncrementAfterPayment?.orderId === orderId) {
@@ -504,7 +687,12 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
   };
 
   // Save live editing of ticket items & trigger incremental KOT add-on printing
-  const handleSaveOrderItems = async (orderId: string, updatedItems: CartItem[]) => {
+  const handleSaveOrderItems = async (
+    orderId: string,
+    updatedItems: CartItem[],
+    orderNotes?: string,
+    shouldPrintKot?: boolean
+  ) => {
     try {
       const targetOrder = orders.find((o) => o.id === orderId);
 
@@ -515,9 +703,35 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
 
       let itemsToPersist = updatedItems;
 
-      if (unprintedAddons.length > 0 && targetOrder) {
-        // Dispatch KOT print ONLY for the newly added unprinted add-on items
-        const printed = await printAddonStationKots(targetOrder, unprintedAddons);
+      if (shouldPrintKot && targetOrder) {
+        // Dispatched via "Save & Print Update KOT" button
+        if (unprintedAddons.length > 0) {
+          const printed = await printAddonStationKots(
+            { ...targetOrder, notes: orderNotes || targetOrder.notes },
+            unprintedAddons
+          );
+          if (printed) {
+            const nowIso = new Date().toISOString();
+            itemsToPersist = updatedItems.map((item) =>
+              unprintedAddons.some((addon) => addon.id === item.id)
+                ? { ...item, isPrinted: true, printedAt: item.printedAt || nowIso }
+                : item
+            );
+          }
+        } else {
+          // Print full station KOTs for the updated ticket
+          await printStationKots({
+            ...targetOrder,
+            items: updatedItems,
+            notes: orderNotes || targetOrder.notes,
+          });
+        }
+      } else if (unprintedAddons.length > 0 && targetOrder) {
+        // Auto-dispatch KOT print for newly added add-on dishes
+        const printed = await printAddonStationKots(
+          { ...targetOrder, notes: orderNotes || targetOrder.notes },
+          unprintedAddons
+        );
         if (printed) {
           const nowIso = new Date().toISOString();
           // Mark newly printed items as isPrinted: true upon dispatching the intent
@@ -529,7 +743,7 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
         }
       }
 
-      const updated = await updateOrderItems(orderId, itemsToPersist);
+      const updated = await updateOrderItems(orderId, itemsToPersist, orderNotes);
       setOrders(updated);
       const newMetrics = await getDailyMetrics();
       setMetrics(newMetrics);
@@ -647,7 +861,7 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
         onEdit={(ord) => setEditingOrder(ord)}
         onPayment={(ord) => {
           if (isOrderUnpaid(ord)) {
-            setPayingOrder(ord);
+            setPayingOrderId(ord.id);
           }
         }}
         onMarkDone={() => handleMarkOrderDone(item)}
@@ -680,35 +894,78 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
         }
       />
 
-      {/* Daily Metrics Summary Card */}
+      {/* Daily Metrics Summary Card (Collapsible Dropdown - Hidden by default) */}
       <View style={styles.metricsCard}>
-        <View style={styles.metricsHeaderRow}>
-          <Text style={styles.metricsShiftTitle}>Today&apos;s Shift</Text>
-          <Text style={styles.metricsDateText}>{formatDateClean()}</Text>
-        </View>
-
-        <View style={styles.metricsValuesRow}>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricLabel}>Total Orders</Text>
-            <Text style={styles.metricNumber}>{metrics.totalOrders}</Text>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={toggleShiftStats}
+          style={[
+            styles.metricsHeaderRow,
+            !isShiftStatsExpanded && styles.metricsHeaderRowCollapsed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Toggle Today's Shift stats"
+        >
+          <View style={styles.metricsHeaderLeft}>
+            <Text style={styles.metricsShiftTitle}>Today&apos;s Shift</Text>
+            <Text style={styles.metricsDateText}> • {formatDateClean()}</Text>
           </View>
 
-          <View style={styles.metricDivider} />
-
-          <View style={styles.metricItem}>
-            <Text style={styles.metricLabel}>In Kitchen</Text>
-            <Text style={[styles.metricNumber, { color: COLORS.apricot }]}>
-              {metrics.activeOrders}
-            </Text>
+          <View style={styles.metricsChevronBtn}>
+            {isShiftStatsExpanded ? (
+              <ChevronUp size={18} color={COLORS.slate} strokeWidth={2.4} />
+            ) : (
+              <ChevronDown size={18} color={COLORS.slate} strokeWidth={2.4} />
+            )}
           </View>
+        </TouchableOpacity>
 
-          <View style={styles.metricDivider} />
+        {isShiftStatsExpanded && (
+          <View>
+            <View style={styles.metricsValuesRow}>
+              <View style={styles.metricItem}>
+                <Text style={styles.metricLabel}>Total Orders</Text>
+                <Text style={styles.metricNumber}>{metrics.totalOrders}</Text>
+              </View>
 
-          <View style={styles.metricItem}>
-            <Text style={styles.metricLabel}>Shift Revenue</Text>
-            <Text style={styles.metricNumberHighlight}>₹{metrics.totalRevenue}</Text>
+              <View style={styles.metricDivider} />
+
+              <View style={styles.metricItem}>
+                <Text style={styles.metricLabel}>In Kitchen</Text>
+                <Text style={[styles.metricNumber, { color: COLORS.apricot }]}>
+                  {metrics.activeOrders}
+                </Text>
+              </View>
+
+              <View style={styles.metricDivider} />
+
+              <View style={styles.metricItem}>
+                <Text style={styles.metricLabel}>Shift Revenue</Text>
+                <Text style={styles.metricNumberHighlight}>
+                  ₹{(metrics.totalRevenue || 0).toLocaleString('en-IN')}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.metricsHorizontalDivider} />
+
+            <View style={styles.metricsCollectedRow}>
+              <View style={styles.metricsCollectedPill}>
+                <Text style={styles.metricsCollectedLabel}>UPI •</Text>
+                <Text style={styles.metricsCollectedValue}>
+                  ₹{(metrics.totalUpiRevenue || 0).toLocaleString('en-IN')}
+                </Text>
+              </View>
+
+              <View style={styles.metricsCollectedPill}>
+                <Text style={styles.metricsCollectedLabel}>Cash •</Text>
+                <Text style={styles.metricsCollectedValue}>
+                  ₹{(metrics.totalCashRevenue || 0).toLocaleString('en-IN')}
+                </Text>
+              </View>
+            </View>
           </View>
-        </View>
+        )}
       </View>
 
       {/* Top Filter Tabs: "Active Orders" vs "All Orders" vs "Unpaid" (Strictly Current Day) */}
@@ -897,17 +1154,32 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
         order={editingOrder}
         onClose={() => setEditingOrder(null)}
         onSave={handleSaveOrderItems}
+        onCancelOrder={handlePromptCancelFullOrder}
+        onRequestRefund={handleEditOrderRequiresRefund}
       />
+
+      {/* Customer Refund Settlement Modal */}
+      {!!refundModal && (
+        <RefundModal
+          visible={refundModal.visible}
+          order={refundModal.order}
+          refundAmount={refundModal.refundAmount}
+          reason={refundModal.reason}
+          isFullOrderCancellation={refundModal.isFullOrderCancellation}
+          onConfirm={handleConfirmRefund}
+          onClose={() => setRefundModal(null)}
+        />
+      )}
 
       {/* Payment Processing Modal (UPI / Cash) */}
       <PaymentModal
-        key={payingOrder ? `${payingOrder.id}_${payingOrder.balanceDue}_${payingOrder.totalAmount}` : 'closed'}
+        key={payingOrder ? `${payingOrder.id}_${payingOrder.balanceDue}_${payingOrder.totalAmount}_${payingOrder.grandTotal}_${payingOrder.upiPaid}_${payingOrder.cashPaid}` : 'closed'}
         visible={!!payingOrder}
         order={payingOrder}
         onClose={() => {
           setMarkDoneAfterPaymentId(null);
           setPendingDishIncrementAfterPayment(null);
-          setPayingOrder(null);
+          setPayingOrderId(null);
         }}
         onPaymentCompleted={handlePaymentCompleted}
       />
@@ -945,7 +1217,7 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
                 setPendingDishIncrementAfterPayment(dishInc);
               }
               setMarkDoneAfterPaymentId(ord.id);
-              setPayingOrder(ord);
+              setPayingOrderId(ord.id);
             }}
             secondaryLabel="✓ Mark Done (Keep Unpaid)"
             onSecondaryPress={async () => {
@@ -1007,6 +1279,21 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
     paddingHorizontal: 2,
   },
+  metricsHeaderRowCollapsed: {
+    marginBottom: 0,
+  },
+  metricsHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  metricsChevronBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: COLORS.surfaceMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   metricsShiftTitle: {
     fontSize: 15,
     color: COLORS.organic,
@@ -1057,6 +1344,37 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: COLORS.organic,
     ...FONTS.heavy,
+  },
+  metricsHorizontalDivider: {
+    height: 1,
+    backgroundColor: COLORS.borderLight,
+    marginVertical: SPACING.sm,
+  },
+  metricsCollectedRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  metricsCollectedPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.surfaceMuted,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
+  },
+  metricsCollectedLabel: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    ...FONTS.semibold,
+  },
+  metricsCollectedValue: {
+    fontSize: 13,
+    color: COLORS.organic,
+    ...FONTS.bold,
   },
   timelineTabsWrapper: {
     flexDirection: 'row',

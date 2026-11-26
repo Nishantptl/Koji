@@ -15,6 +15,7 @@ export interface CartItem extends MenuItem {
   quantity: number;
   servedQuantity?: number; // Count of dishes served (0 to quantity)
   status?: ItemStatus;
+  notes?: string; // Per-dish preparation notes (e.g. "Less spicy", "No onion")
   addedAt?: string; // ISO timestamp if added live to an existing ticket
   isAddon?: boolean; // True if this item was added as an independent add-on batch
   isPrinted?: boolean; // True if this item has been printed on a KOT slip
@@ -23,13 +24,13 @@ export interface CartItem extends MenuItem {
   notifiedAt?: string; // ISO timestamp when WhatsApp notification was dispatched
 }
 
-export type OrderStatus = 'preparing' | 'completed';
+export type OrderStatus = 'preparing' | 'completed' | 'cancelled' | 'Cancelled';
 
 export type OrderType = 'Dine-in' | 'Parcel' | 'Car' | 'Take Away';
 
-export type PaymentMethod = 'UPI' | 'Cash' | 'UPI + Cash';
+export type PaymentMethod = 'UPI' | 'Cash' | 'Split' | 'UPI + Cash';
 
-export type PaymentStatus = 'Pending' | 'Partial' | 'Completed';
+export type PaymentStatus = 'Unpaid' | 'Partial' | 'Paid' | 'Completed' | 'Pending' | 'Refunded';
 
 export interface PaymentRecord {
   method: 'UPI' | 'Cash';
@@ -53,12 +54,18 @@ export interface Order {
   orderType?: OrderType;  // 'Dine-in' | 'Parcel' | 'Car'
   paymentMethod?: PaymentMethod;
   paymentStatus?: PaymentStatus;
+  upiPaid?: number;       // Amount paid via UPI (INR)
+  cashPaid?: number;      // Amount paid via Cash (INR)
+  refundedUpi?: number;   // Amount refunded via UPI (INR)
+  refundedCash?: number;  // Amount refunded via Cash (INR)
+  cancelReason?: string;  // Reason for item/order cancellation or refund
   payments?: PaymentRecord[]; // Split payment tracking (e.g. initial UPI + add-on Cash)
   notes?: string;
   items: CartItem[];
   subtotal?: number;      // Bill subtotal before discount
   discount?: number;      // Live discount amount in INR
   discountPercent?: number; // Discount percentage (e.g. 10 for 10%)
+  grandTotal?: number;    // True full bill total (initial items + all add-on items after discount)
   totalAmount: number;    // Cumulative sum of all items in the ticket (after discount)
   amountPaid?: number;    // Actual money collected so far
   paidAmount?: number;    // Alias for amountPaid
@@ -75,6 +82,8 @@ export type OrderInput = Omit<Order, 'id' | 'token' | 'timestamp' | 'status' | '
 export interface DailyMetrics {
   totalOrders: number;
   totalRevenue: number;
+  totalUpiRevenue?: number;
+  totalCashRevenue?: number;
   activeOrders: number;
   completedOrders: number;
 }
@@ -82,6 +91,16 @@ export interface DailyMetrics {
 export interface CustomerProfile {
   name: string;
   phone: string;
+}
+
+export interface ItemSalesSummary {
+  id: string;
+  name: string;
+  category: string;
+  isVeg: boolean;
+  price: number;
+  quantitySold: number;
+  itemRevenue: number;
 }
 
 export type DateRangeOption = 'today' | '7days' | 'custom' | 'all' | '30days';

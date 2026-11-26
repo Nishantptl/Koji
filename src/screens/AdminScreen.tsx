@@ -24,6 +24,7 @@ import {
   Check,
   X,
   ChevronRight,
+  ChevronLeft,
   Search,
   Sparkles,
   Calendar as CalendarIcon,
@@ -40,12 +41,13 @@ import {
   Users,
   UserPlus,
   Copy,
+  Info,
 } from 'lucide-react-native';
 import QRCode from 'react-native-qrcode-svg';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import { requireOptionalNativeModule } from 'expo';
-import { MenuItem, DateRangeOption, Order } from '../types';
+import { MenuItem, DateRangeOption, Order, ItemSalesSummary } from '../types';
 import { BrandHeader } from '../components/BrandHeader';
 import { VegBadge } from '../components/VegBadge';
 import { TokenBadge } from '../components/TokenBadge';
@@ -80,6 +82,7 @@ import {
   formatDate,
   formatTime,
   isOrderFromToday,
+  getItemsSoldSummary,
   getUpiConfig,
   saveUpiConfig,
   CustomerRecord,
@@ -101,6 +104,7 @@ const STANDARD_CATEGORIES = [
 
 type AdminView =
   | 'hub'
+  | 'dish_tally'
   | 'menu_manage'
   | 'customer_directory'
   | 'export'
@@ -301,6 +305,22 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
   const [customerSearch, setCustomerSearch] = useState('');
   const [isSyncingContacts, setIsSyncingContacts] = useState(false);
   const [sentHolidayPhones, setSentHolidayPhones] = useState<string[]>([]);
+
+  // Dish Tally State
+  const [dishTallySearch, setDishTallySearch] = useState('');
+
+  const itemsSoldToday: ItemSalesSummary[] = useMemo(() => {
+    const todayOrders = orders.filter((o) => isOrderFromToday(o.timestamp));
+    return getItemsSoldSummary(todayOrders);
+  }, [orders]);
+
+  const filteredDishTally = useMemo(() => {
+    if (!dishTallySearch.trim()) return itemsSoldToday;
+    const q = dishTallySearch.trim().toLowerCase();
+    return itemsSoldToday.filter((item) =>
+      item.name.toLowerCase().includes(q)
+    );
+  }, [itemsSoldToday, dishTallySearch]);
 
   const uniqueCustomers: CustomerRecord[] = useMemo(() => {
     return extractUniqueCustomers(orders);
@@ -1272,20 +1292,35 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
       {/* Sub-view Header if inside sub-screens */}
       {currentView !== 'hub' && (
         <View style={styles.subviewNavHeader}>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => {
+              try {
+                Haptics.selectionAsync();
+              } catch {}
+              setCurrentView('hub');
+            }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={styles.subviewBackBtn}
+          >
+            <ChevronLeft size={20} color={COLORS.forestGreen} strokeWidth={2.4} />
+          </TouchableOpacity>
           <Text style={styles.subviewNavTitle}>
-            {currentView === 'menu_manage'
-              ? 'Menu Management'
-              : currentView === 'customer_directory'
-                ? 'Customer Directory'
-                : currentView === 'export'
-                  ? 'Export Reports'
-                  : currentView === 'all_orders'
-                    ? 'Orders History'
-                    : currentView === 'upi_setup'
-                      ? 'UPI & QR Setup'
-                      : currentView === 'printer_settings'
-                        ? 'Printer Settings'
-                        : 'Notification Settings'}
+            {currentView === 'dish_tally'
+              ? 'Dish Tally'
+              : currentView === 'menu_manage'
+                ? 'Menu Management'
+                : currentView === 'customer_directory'
+                  ? 'Customer Directory'
+                  : currentView === 'export'
+                    ? 'Export Reports'
+                    : currentView === 'all_orders'
+                      ? 'Orders History'
+                      : currentView === 'upi_setup'
+                        ? 'UPI & QR Setup'
+                        : currentView === 'printer_settings'
+                          ? 'Printer Settings'
+                          : 'Notification Settings'}
           </Text>
         </View>
       )}
@@ -1359,7 +1394,29 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
                   <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
                 </TouchableOpacity>
 
-                {/* Feature Tile 2: Menu Management */}
+                {/* Feature Tile 2: Dish Tally */}
+                <TouchableOpacity
+                  activeOpacity={0.88}
+                  onPress={() => navigateTo('dish_tally')}
+                  style={styles.elevatedDarkCard}
+                >
+                  <View style={styles.cardLeftContent}>
+                    <View style={styles.cardIconBadge}>
+                      <UtensilsCrossed size={22} color={COLORS.forestGreen} strokeWidth={2.2} />
+                    </View>
+
+                    <View style={styles.cardTextGroup}>
+                      <Text style={styles.cardMainTitle}>Dish Tally</Text>
+                      <Text style={styles.cardSubtitle}>
+                        Shift item counts & quantities sold
+                      </Text>
+                    </View>
+                  </View>
+
+                  <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
+                </TouchableOpacity>
+
+                {/* Feature Tile 3: Menu Management */}
                 <TouchableOpacity
                   activeOpacity={0.88}
                   onPress={() => navigateTo('menu_manage')}
@@ -1381,7 +1438,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
                   <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
                 </TouchableOpacity>
 
-                {/* Feature Tile 3: Customer Directory */}
+                {/* Feature Tile 4: Customer Directory */}
                 <TouchableOpacity
                   activeOpacity={0.88}
                   onPress={() => navigateTo('customer_directory')}
@@ -1396,28 +1453,6 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
                       <Text style={styles.cardMainTitle}>Customer Directory</Text>
                       <Text style={styles.cardSubtitle}>
                         Sync phone contacts & send holiday updates
-                      </Text>
-                    </View>
-                  </View>
-
-                  <ChevronRight size={20} color={COLORS.forest} strokeWidth={2.2} />
-                </TouchableOpacity>
-
-                {/* Feature Tile 4: Order History */}
-                <TouchableOpacity
-                  activeOpacity={0.88}
-                  onPress={() => navigateTo('all_orders')}
-                  style={styles.elevatedDarkCard}
-                >
-                  <View style={styles.cardLeftContent}>
-                    <View style={styles.cardIconBadge}>
-                      <History size={22} color={COLORS.forestGreen} strokeWidth={2.2} />
-                    </View>
-
-                    <View style={styles.cardTextGroup}>
-                      <Text style={styles.cardMainTitle}>Order History</Text>
-                      <Text style={styles.cardSubtitle}>
-                        Full shift history, dates & receipts
                       </Text>
                     </View>
                   </View>
@@ -1447,7 +1482,29 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
                   <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
                 </TouchableOpacity>
 
-                {/* Feature Tile 6: Printer Settings */}
+                {/* Feature Tile 6: Order History */}
+                <TouchableOpacity
+                  activeOpacity={0.88}
+                  onPress={() => navigateTo('all_orders')}
+                  style={styles.elevatedDarkCard}
+                >
+                  <View style={styles.cardLeftContent}>
+                    <View style={styles.cardIconBadge}>
+                      <History size={22} color={COLORS.forestGreen} strokeWidth={2.2} />
+                    </View>
+
+                    <View style={styles.cardTextGroup}>
+                      <Text style={styles.cardMainTitle}>Order History</Text>
+                      <Text style={styles.cardSubtitle}>
+                        Full shift history, dates & receipts
+                      </Text>
+                    </View>
+                  </View>
+
+                  <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
+                </TouchableOpacity>
+
+                {/* Feature Tile 7: Printer Settings */}
                 <TouchableOpacity
                   activeOpacity={0.88}
                   onPress={() => navigateTo('printer_settings')}
@@ -1469,7 +1526,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
                   <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
                 </TouchableOpacity>
 
-                {/* Feature Tile 7: Notification Channel */}
+                {/* Feature Tile 8: Notification Channel */}
                 <TouchableOpacity
                   activeOpacity={0.88}
                   onPress={() => navigateTo('notification_settings')}
@@ -1494,6 +1551,85 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
 
                   <ChevronRight size={20} color={COLORS.forestGreen} strokeWidth={2.2} />
                 </TouchableOpacity>
+              </View>
+            )}
+
+            {/* ========================================================= */}
+            {/* VIEW: DISH TALLY SUB-SCREEN                                */}
+            {/* ========================================================= */}
+            {currentView === 'dish_tally' && (
+              <View style={styles.dishTallyContainer}>
+                {/* Live Shift Summary Note Banner */}
+                <View style={styles.dishTallySummaryBanner}>
+                  <View style={styles.dishTallySummaryHeaderRow}>
+                    <Info size={15} color={COLORS.forestGreen} strokeWidth={2.4} />
+                    <Text style={styles.dishTallySummaryTitle}>Today&apos;s Shift Summary</Text>
+                  </View>
+                  <Text style={styles.dishTallySummaryText}>
+                    Real-time tally of all items ordered and prepared during today&apos;s service, ranked descending by quantity sold.
+                  </Text>
+                </View>
+
+                {/* Top Search Bar */}
+                <View style={styles.dishTallySearchBar}>
+                  <Search size={16} color={COLORS.natural} />
+                  <TextInput
+                    style={styles.dishTallySearchInput}
+                    placeholder="Search dishes (e.g. Crispy Chicken)..."
+                    placeholderTextColor={COLORS.textMuted}
+                    value={dishTallySearch}
+                    onChangeText={setDishTallySearch}
+                  />
+                  {dishTallySearch.length > 0 && (
+                    <TouchableOpacity
+                      onPress={() => setDishTallySearch('')}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <X size={14} color={COLORS.slate} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* 3-Column Minimal Table: Sr. No. | Dish Name | Count */}
+                <View style={styles.dishTallyTable}>
+                  <View style={styles.dishTallyTableHeader}>
+                    <Text style={styles.dishTallyColSrHeader}>Sr. No.</Text>
+                    <Text style={styles.dishTallyColNameHeader}>Dish Name</Text>
+                    <Text style={styles.dishTallyColCountHeader}>Count</Text>
+                  </View>
+
+                  {filteredDishTally.length > 0 ? (
+                    filteredDishTally.map((dish, idx) => {
+                      const isLast = idx === filteredDishTally.length - 1;
+                      return (
+                        <View
+                          key={dish.id || dish.name}
+                          style={[
+                            styles.dishTallyTableRow,
+                            isLast && styles.dishTallyTableRowLast,
+                            idx % 2 === 1 && styles.dishTallyTableRowAlt,
+                          ]}
+                        >
+                          <Text style={styles.dishTallyColSr}>{idx + 1}</Text>
+                          <Text style={styles.dishTallyColName}>
+                            {dish.name}
+                          </Text>
+                          <View style={styles.dishTallyCountBadge}>
+                            <Text style={styles.dishTallyColCount}>{dish.quantitySold}</Text>
+                          </View>
+                        </View>
+                      );
+                    })
+                  ) : (
+                    <View style={styles.dishTallyEmptyBox}>
+                      <Text style={styles.dishTallyEmptyText}>
+                        {dishTallySearch
+                          ? `No dishes matching "${dishTallySearch}"`
+                          : 'No dishes sold yet today in this shift.'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
               </View>
             )}
 
@@ -2733,6 +2869,162 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 6,
     elevation: 2,
+  },
+  // DISH TALLY STYLES
+  dishTallyContainer: {
+    paddingTop: SPACING.xs,
+  },
+  dishTallySearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderRadius: 14,
+    paddingHorizontal: SPACING.md,
+    height: 44,
+    gap: SPACING.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(140, 158, 145, 0.3)',
+    marginBottom: SPACING.md,
+  },
+  dishTallySearchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: COLORS.organic,
+    ...FONTS.medium,
+    paddingVertical: 0,
+  },
+  dishTallyTable: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(140, 158, 145, 0.3)',
+    shadowColor: COLORS.forestGreen,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  dishTallyTableHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.forestGreen,
+    paddingVertical: 12,
+    paddingHorizontal: SPACING.md,
+  },
+  dishTallySummaryBanner: {
+    backgroundColor: COLORS.sage,
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: COLORS.border,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: SPACING.md,
+    gap: 3,
+  },
+  dishTallySummaryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dishTallySummaryTitle: {
+    fontSize: 12.5,
+    color: COLORS.forestGreen,
+    ...FONTS.bold,
+  },
+  dishTallySummaryText: {
+    fontSize: 11,
+    color: COLORS.slate,
+    ...FONTS.regular,
+    lineHeight: 15,
+  },
+  dishTallyColSrHeader: {
+    width: 44,
+    fontSize: 11.5,
+    color: COLORS.white,
+    ...FONTS.bold,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  dishTallyColNameHeader: {
+    flex: 1,
+    fontSize: 11.5,
+    color: COLORS.white,
+    ...FONTS.bold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    paddingHorizontal: 8,
+  },
+  dishTallyColCountHeader: {
+    width: 65,
+    fontSize: 11.5,
+    color: COLORS.white,
+    ...FONTS.bold,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  dishTallyTableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderLight,
+    backgroundColor: COLORS.white,
+  },
+  dishTallyTableRowAlt: {
+    backgroundColor: '#FAFBF8',
+  },
+  dishTallyTableRowLast: {
+    borderBottomWidth: 0,
+  },
+  dishTallyColSr: {
+    width: 44,
+    fontSize: 12.5,
+    color: COLORS.slate,
+    ...FONTS.bold,
+    textAlign: 'center',
+  },
+  dishTallyColName: {
+    flex: 1,
+    fontSize: 13,
+    color: COLORS.organic,
+    ...FONTS.heavy,
+    paddingHorizontal: 8,
+    flexWrap: 'wrap',
+  },
+  dishTallyCountBadge: {
+    width: 65,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dishTallyColCount: {
+    fontSize: 13.5,
+    color: COLORS.forestGreen,
+    ...FONTS.heavy,
+    backgroundColor: COLORS.sage,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 8,
+    overflow: 'hidden',
+    textAlign: 'center',
+  },
+  dishTallyEmptyBox: {
+    paddingVertical: SPACING.xxl,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dishTallyEmptyText: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+    ...FONTS.medium,
+    textAlign: 'center',
+  },
+  subviewBackBtn: {
+    marginRight: 8,
+    padding: 2,
   },
   cardLeftContent: {
     flexDirection: 'row',

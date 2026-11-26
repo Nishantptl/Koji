@@ -21,8 +21,6 @@ import {
   Sparkles,
   Printer,
   Check,
-  Smartphone,
-  Banknote,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { CartItem, CustomerProfile, OrderType } from '../types';
@@ -50,7 +48,6 @@ interface CheckoutModalProps {
     discount?: number;
     discountPercent?: number;
     subtotal?: number;
-    paymentMethod?: 'UPI' | 'Cash';
     orderType?: OrderType;
   }) => void;
   isSubmitting?: boolean;
@@ -79,7 +76,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [customerPhone, setCustomerPhone] = useState('');
   const [notes, setNotes] = useState('');
   const [discountPercentInput, setDiscountPercentInput] = useState<string>('');
-  const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'Cash' | null>(null);
   const [orderType, setOrderType] = useState<OrderType>('Dine-in');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<CustomerProfile[]>([]);
@@ -259,7 +255,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       discount: discountAmount > 0 ? discountAmount : undefined,
       discountPercent: discountPercent > 0 ? discountPercent : undefined,
       subtotal,
-      paymentMethod: paymentMethod || undefined,
       orderType,
     });
 
@@ -268,7 +263,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     setCustomerPhone('');
     setNotes('');
     setDiscountPercentInput('');
-    setPaymentMethod(null);
     setOrderType('Dine-in');
     setValidationError(null);
   };
@@ -276,7 +270,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const handleClose = () => {
     setValidationError(null);
     setDiscountPercentInput('');
-    setPaymentMethod(null);
     setOrderType('Dine-in');
     onClose();
   };
@@ -639,84 +632,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         );
                       })}
                     </View>
-                  </View>
-
-                  {/* Interactive PAYMENT Selector */}
-                  <View style={styles.paymentSectionBox}>
-                    <Text style={styles.paymentSectionLabel}>PAYMENT</Text>
-                    <View style={styles.paymentPillsRow}>
-                      {/* UPI Option */}
-                      <TouchableOpacity
-                        activeOpacity={0.8}
-                        onPress={() => {
-                          try {
-                            Haptics.selectionAsync();
-                          } catch {}
-                          setPaymentMethod((prev) => (prev === 'UPI' ? null : 'UPI'));
-                        }}
-                        style={[
-                          styles.paymentSelectorPill,
-                          paymentMethod === 'UPI' && styles.paymentSelectorPillActiveUpi,
-                        ]}
-                      >
-                        <Smartphone
-                          size={16}
-                          color={paymentMethod === 'UPI' ? COLORS.forest : COLORS.slate}
-                          strokeWidth={2.4}
-                        />
-                        <Text
-                          style={[
-                            styles.paymentSelectorPillText,
-                            paymentMethod === 'UPI' && styles.paymentSelectorPillTextActiveUpi,
-                          ]}
-                        >
-                          UPI
-                        </Text>
-                        {paymentMethod === 'UPI' && (
-                          <Check size={14} color={COLORS.forest} strokeWidth={2.8} />
-                        )}
-                      </TouchableOpacity>
-
-                      {/* Cash Option */}
-                      <TouchableOpacity
-                        activeOpacity={0.8}
-                        onPress={() => {
-                          try {
-                            Haptics.selectionAsync();
-                          } catch {}
-                          setPaymentMethod((prev) => (prev === 'Cash' ? null : 'Cash'));
-                        }}
-                        style={[
-                          styles.paymentSelectorPill,
-                          paymentMethod === 'Cash' && styles.paymentSelectorPillActiveCash,
-                        ]}
-                      >
-                        <Banknote
-                          size={16}
-                          color={paymentMethod === 'Cash' ? COLORS.forest : COLORS.slate}
-                          strokeWidth={2.4}
-                        />
-                        <Text
-                          style={[
-                            styles.paymentSelectorPillText,
-                            paymentMethod === 'Cash' && styles.paymentSelectorPillTextActiveCash,
-                          ]}
-                        >
-                          Cash
-                        </Text>
-                        {paymentMethod === 'Cash' && (
-                          <Check size={14} color={COLORS.forest} strokeWidth={2.8} />
-                        )}
-                      </TouchableOpacity>
-                    </View>
-
-                    <Text style={styles.paymentHelperText}>
-                      {paymentMethod === 'UPI'
-                        ? '✓ Dynamic UPI QR code will open upon saving to scan & pay'
-                        : paymentMethod === 'Cash'
-                        ? '✓ Order will be saved and recorded as paid in Cash'
-                        : '• Unpaid / Collect upon serving (tap UPI or Cash to collect now)'}
-                    </Text>
                   </View>
 
                   {/* Auto-Print Station KOTs Toggle */}

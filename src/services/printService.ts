@@ -238,6 +238,26 @@ export function formatSingleKotSlip(
   kot.items.forEach((item) => {
     const itemLines = wrapItemLine(item.quantity, item.name, width);
     itemLines.forEach((l) => lines.push(l));
+
+    // Per-dish preparation notes (indented under dish line)
+    if (item.notes && item.notes.trim()) {
+      const noteClean = `* Note: ${item.notes.trim()}`;
+      if (noteClean.length + 5 <= width) {
+        lines.push(`     ${noteClean}`.slice(0, width));
+      } else {
+        const words = noteClean.split(/\s+/);
+        let cur = '     ';
+        for (const w of words) {
+          if ((cur + ' ' + w).length <= width) {
+            cur += (cur.trim() ? ' ' : '') + w;
+          } else {
+            lines.push(cur.slice(0, width));
+            cur = '     ' + w;
+          }
+        }
+        if (cur.trim()) lines.push(cur.slice(0, width));
+      }
+    }
   });
 
   // 7. Prominent Kitchen Prep Notes section right below dishes list (and above Total Station Items)
@@ -725,6 +745,144 @@ export async function printAddonStationKots(
     return false;
   }
 
+  return sendToRawBt(content);
+}
+
+/**
+ * Formats a thermal slip for an item cancellation alert
+ */
+export function formatCancelledItemKot(
+  order: Order,
+  cancelledItem: CartItem,
+  cancelledQty = 1,
+  reason?: string,
+  width = ROLL_WIDTH
+): string {
+  const lines: string[] = [];
+  const timeStr = formatTime(new Date().toISOString());
+  const token = order.token.startsWith('#') ? order.token : `#${order.token}`;
+
+  lines.push(padCenter('K O J I', width));
+  lines.push(padCenter('Asian Crafted Fusion', width));
+  lines.push(divider('=', width));
+  lines.push(padCenter('*** CANCELLED ITEM ***', width));
+  lines.push(divider('=', width));
+
+  lines.push(padLeftRight(`Token: ${token}`, `Time: ${timeStr}`, width));
+  const orderTypeDisplay =
+    order.orderType === 'Take Away' || order.orderType === 'Parcel'
+      ? 'Parcel'
+      : order.orderType === 'Car'
+      ? 'Car'
+      : 'Dine-in';
+  lines.push(padLeftRight(`Order Type: ${orderTypeDisplay}`, '', width).trimEnd());
+
+  if (order.customerName || order.customerPhone) {
+    const custParts: string[] = [];
+    if (order.customerName) custParts.push(order.customerName);
+    if (order.customerPhone) custParts.push(`(${order.customerPhone})`);
+    lines.push(`Customer: ${custParts.join(' ')}`.slice(0, width));
+  }
+
+  lines.push(divider('-', width));
+  lines.push(padLeftRight('QTY   ITEM', '', width).trimEnd());
+  lines.push(divider('-', width));
+
+  const itemLines = wrapItemLine(cancelledQty, cancelledItem.name, width);
+  itemLines.forEach((l) => lines.push(l));
+
+  if (reason && reason.trim()) {
+    lines.push(divider('-', width));
+    lines.push(`Reason: ${reason.trim()}`.slice(0, width));
+  }
+
+  lines.push(divider('=', width));
+  lines.push(padCenter('DO NOT PREPARE / DISCARD', width));
+  lines.push(divider('=', width));
+
+  return lines.join('\n') + ESCPOS_AUTO_CUT;
+}
+
+/**
+ * Print Cancelled Item KOT Alert
+ */
+export async function printCancelledItemKot(
+  order: Order,
+  cancelledItem: CartItem,
+  cancelledQty = 1,
+  reason?: string,
+  widthOverride?: number
+): Promise<boolean> {
+  const width = widthOverride ?? (await getPaperWidthPreference());
+  const content = formatCancelledItemKot(order, cancelledItem, cancelledQty, reason, width);
+  return sendToRawBt(content);
+}
+
+/**
+ * Formats a thermal slip for a full order cancellation alert
+ */
+export function formatCancelledOrderKot(
+  order: Order,
+  reason?: string,
+  width = ROLL_WIDTH
+): string {
+  const lines: string[] = [];
+  const timeStr = formatTime(new Date().toISOString());
+  const token = order.token.startsWith('#') ? order.token : `#${order.token}`;
+
+  lines.push(padCenter('K O J I', width));
+  lines.push(padCenter('Asian Crafted Fusion', width));
+  lines.push(divider('=', width));
+  lines.push(padCenter('*** FULL ORDER CANCELLED ***', width));
+  lines.push(divider('=', width));
+
+  lines.push(padLeftRight(`Token: ${token}`, `Time: ${timeStr}`, width));
+  const orderTypeDisplay =
+    order.orderType === 'Take Away' || order.orderType === 'Parcel'
+      ? 'Parcel'
+      : order.orderType === 'Car'
+      ? 'Car'
+      : 'Dine-in';
+  lines.push(padLeftRight(`Order Type: ${orderTypeDisplay}`, '', width).trimEnd());
+
+  if (order.customerName || order.customerPhone) {
+    const custParts: string[] = [];
+    if (order.customerName) custParts.push(order.customerName);
+    if (order.customerPhone) custParts.push(`(${order.customerPhone})`);
+    lines.push(`Customer: ${custParts.join(' ')}`.slice(0, width));
+  }
+
+  lines.push(divider('-', width));
+  lines.push(padLeftRight('QTY   ITEM', '', width).trimEnd());
+  lines.push(divider('-', width));
+
+  order.items.forEach((item) => {
+    const itemLines = wrapItemLine(item.quantity, item.name, width);
+    itemLines.forEach((l) => lines.push(l));
+  });
+
+  if (reason && reason.trim()) {
+    lines.push(divider('-', width));
+    lines.push(`Reason: ${reason.trim()}`.slice(0, width));
+  }
+
+  lines.push(divider('=', width));
+  lines.push(padCenter('STOP ALL PREPARATION', width));
+  lines.push(divider('=', width));
+
+  return lines.join('\n') + ESCPOS_AUTO_CUT;
+}
+
+/**
+ * Print Cancelled Order KOT Alert
+ */
+export async function printCancelledOrderKot(
+  order: Order,
+  reason?: string,
+  widthOverride?: number
+): Promise<boolean> {
+  const width = widthOverride ?? (await getPaperWidthPreference());
+  const content = formatCancelledOrderKot(order, reason, width);
   return sendToRawBt(content);
 }
 

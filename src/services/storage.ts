@@ -19,6 +19,7 @@ import {
   PaymentStatus,
   UpiConfig,
   PaymentRecord,
+  ItemSalesSummary,
 } from '../types';
 import defaultMenuSeed from '../data/menu.json';
 
@@ -48,7 +49,7 @@ export const saveUpiConfig = async (config: UpiConfig): Promise<void> => {
   await AsyncStorage.setItem(UPI_CONFIG_STORAGE_KEY, JSON.stringify(config));
   try {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  } catch {}
+  } catch { }
 };
 
 export const getPaymentQrUri = async (): Promise<string | null> => {
@@ -63,14 +64,14 @@ export const savePaymentQrUri = async (uri: string): Promise<void> => {
   await AsyncStorage.setItem(PAYMENT_QR_STORAGE_KEY, uri);
   try {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  } catch {}
+  } catch { }
 };
 
 export const resetPaymentQrUri = async (): Promise<void> => {
   await AsyncStorage.removeItem(PAYMENT_QR_STORAGE_KEY);
   try {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-  } catch {}
+  } catch { }
 };
 
 // ==========================================
@@ -88,7 +89,7 @@ export const getLastActiveDate = async (): Promise<string | null> => {
 export const setLastActiveDate = async (dateStr: string): Promise<void> => {
   try {
     await AsyncStorage.setItem(LAST_ACTIVE_DATE_KEY, dateStr);
-  } catch {}
+  } catch { }
 };
 
 /**
@@ -108,12 +109,12 @@ export const checkAndHandleDailyRollover = async (): Promise<{
   let lastActiveDate: string | null = null;
   try {
     lastActiveDate = await AsyncStorage.getItem(LAST_ACTIVE_DATE_KEY);
-  } catch {}
+  } catch { }
 
   if (!lastActiveDate || lastActiveDate !== todayDate) {
     try {
       await AsyncStorage.setItem(LAST_ACTIVE_DATE_KEY, todayDate);
-    } catch {}
+    } catch { }
     return {
       isRollover: true,
       todayDate,
@@ -263,34 +264,91 @@ export const getOrderBalanceDue = (order: Order): number => {
 };
 
 /**
- * Calculates the amount paid so far for an order.
+ * Calculates UPI amount paid so far with safe legacy fallbacks.
+ */
+export const getOrderUpiPaid = (order: Order): number => {
+  if (typeof order.upiPaid === 'number' && !isNaN(order.upiPaid)) {
+    return Math.max(0, order.upiPaid);
+  }
+  if (Array.isArray(order.payments) && order.payments.length > 0) {
+    return order.payments
+      .filter((p) => p.method === 'UPI')
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+  }
+  if (order.isPaid || order.paymentStatus === 'Completed' || order.paymentStatus === 'Paid') {
+    if (order.paymentMethod === 'UPI') {
+      return typeof order.totalAmount === 'number' ? order.totalAmount : 0;
+    }
+  }
+  return 0;
+};
+
+/**
+ * Calculates Cash amount paid so far with safe legacy fallbacks.
+ */
+export const getOrderCashPaid = (order: Order): number => {
+  if (typeof order.cashPaid === 'number' && !isNaN(order.cashPaid)) {
+    return Math.max(0, order.cashPaid);
+  }
+  if (Array.isArray(order.payments) && order.payments.length > 0) {
+    return order.payments
+      .filter((p) => p.method === 'Cash')
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+  }
+  if (order.isPaid || order.paymentStatus === 'Completed' || order.paymentStatus === 'Paid') {
+    if (order.paymentMethod === 'Cash') {
+      return typeof order.totalAmount === 'number' ? order.totalAmount : 0;
+    }
+  }
+  return 0;
+};
+
+/**
+ * Calculates the amount paid so far for an order with split payment support.
  */
 export const getOrderAmountPaid = (order: Order): number => {
-  if (typeof order.paidAmount === 'number') {
+  if (typeof order.paidAmount === 'number' && !isNaN(order.paidAmount)) {
     return Math.max(0, order.paidAmount);
   }
-  if (typeof order.amountPaid === 'number') {
+  if (typeof order.amountPaid === 'number' && !isNaN(order.amountPaid)) {
     return Math.max(0, order.amountPaid);
   }
-  return order.paymentStatus === 'Completed' ? order.totalAmount : 0;
+  const splitSum = (typeof order.upiPaid === 'number' ? order.upiPaid : 0) +
+    (typeof order.cashPaid === 'number' ? order.cashPaid : 0);
+  if (splitSum > 0) return splitSum;
+
+  if (Array.isArray(order.payments) && order.payments.length > 0) {
+    return order.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+  }
+  return (order.paymentStatus === 'Completed' || order.paymentStatus === 'Paid')
+    ? (order.totalAmount || 0)
+    : 0;
 };
 
 /**
  * Returns true if an order is fully settled/paid (no outstanding balance).
  */
 export const isOrderFullyPaid = (order: Order): boolean => {
+  const total = typeof order.grandTotal === 'number' && order.grandTotal > 0 ? order.grandTotal : (order.totalAmount || 0);
   const paid = getOrderAmountPaid(order);
-  const due = Math.max(0, order.totalAmount - paid);
+  const due = Math.max(0, total - paid);
   const isPaid = typeof order.isPaid === 'boolean'
     ? order.isPaid
-    : (order.paymentStatus === 'Completed' && due === 0);
-  return isPaid && due === 0;
+    : (order.paymentStatus === 'Completed' || order.paymentStatus === 'Paid');
+  return (isPaid || paid >= total) && due === 0;
 };
 
 /**
  * Returns true if an order is unpaid or has a pending due balance.
  */
 export const isOrderUnpaid = (order: Order): boolean => {
+  if (
+    order.status === 'Cancelled' ||
+    (order.status as any) === 'cancelled' ||
+    order.paymentStatus === 'Refunded'
+  ) {
+    return false;
+  }
   return !isOrderFullyPaid(order);
 };
 
@@ -453,21 +511,21 @@ export const deleteMenuItem = async (id: string): Promise<MenuItem[]> => {
 const normalizeOrder = (order: any): Order => {
   const normalizedItems: CartItem[] = Array.isArray(order.items)
     ? order.items.map((i: any) => {
-        const qty = i.quantity || 1;
-        const status = i.status || 'pending';
-        let servedQty = 0;
-        if (typeof i.servedQuantity === 'number') {
-          servedQty = i.servedQuantity;
-        } else if (status === 'completed') {
-          servedQty = qty;
-        }
-        return {
-          ...i,
-          quantity: qty,
-          servedQuantity: servedQty,
-          status,
-        };
-      })
+      const qty = i.quantity || 1;
+      const status = i.status || 'pending';
+      let servedQty = 0;
+      if (typeof i.servedQuantity === 'number') {
+        servedQty = i.servedQuantity;
+      } else if (status === 'completed') {
+        servedQty = qty;
+      }
+      return {
+        ...i,
+        quantity: qty,
+        servedQuantity: servedQty,
+        status,
+      };
+    })
     : [];
 
   let payments: PaymentRecord[] | undefined = Array.isArray(order.payments)
@@ -478,8 +536,8 @@ const normalizeOrder = (order: any): Order => {
     const m = order.paymentMethod.includes('Cash') && order.paymentMethod.includes('UPI')
       ? 'UPI'
       : order.paymentMethod === 'Cash'
-      ? 'Cash'
-      : 'UPI';
+        ? 'Cash'
+        : 'UPI';
     payments = [
       {
         method: m,
@@ -511,21 +569,40 @@ const normalizeOrder = (order: any): Order => {
 
   const isPaid = typeof order.isPaid === 'boolean'
     ? order.isPaid
-    : (order.paymentStatus === 'Completed' && balanceDue === 0);
+    : ((order.paymentStatus === 'Completed' || order.paymentStatus === 'Paid') && balanceDue === 0);
+
+  const upiPaid = typeof order.upiPaid === 'number' && !isNaN(order.upiPaid)
+    ? Math.max(0, order.upiPaid)
+    : (Array.isArray(payments)
+      ? payments.filter((p) => p.method === 'UPI').reduce((s, p) => s + (p.amount || 0), 0)
+      : (order.paymentMethod === 'UPI' && (order.paymentStatus === 'Completed' || order.paymentStatus === 'Paid') ? totalAmount : 0));
+
+  const cashPaid = typeof order.cashPaid === 'number' && !isNaN(order.cashPaid)
+    ? Math.max(0, order.cashPaid)
+    : (Array.isArray(payments)
+      ? payments.filter((p) => p.method === 'Cash').reduce((s, p) => s + (p.amount || 0), 0)
+      : (order.paymentMethod === 'Cash' && (order.paymentStatus === 'Completed' || order.paymentStatus === 'Paid') ? totalAmount : 0));
 
   const paymentStatus: PaymentStatus =
-    order.paymentStatus || (balanceDue === 0 && amountPaid > 0 ? 'Completed' : 'Pending');
+    order.paymentStatus || (balanceDue === 0 && amountPaid > 0 ? 'Paid' : 'Unpaid');
 
   return {
     ...order,
     items: normalizedItems,
     payments,
+    upiPaid,
+    cashPaid,
+    refundedUpi: typeof order.refundedUpi === 'number' ? Math.max(0, order.refundedUpi) : 0,
+    refundedCash: typeof order.refundedCash === 'number' ? Math.max(0, order.refundedCash) : 0,
+    cancelReason: order.cancelReason || undefined,
     orderType:
       order.orderType === 'Take Away' || order.orderType === 'Parcel'
         ? 'Parcel'
         : order.orderType || 'Dine-in',
     discountPercent: typeof order.discountPercent === 'number' ? order.discountPercent : undefined,
-    status: order.status === 'completed' ? 'completed' : 'preparing',
+    status: (order.status === 'cancelled' || order.status === 'Cancelled')
+      ? 'Cancelled'
+      : (order.status === 'completed' ? 'completed' : 'preparing'),
     paymentStatus,
     subtotal,
     discount,
@@ -582,8 +659,8 @@ export const saveOrder = async (orderData: OrderInput): Promise<Order> => {
     balanceDue <= 0 && isPaid
       ? 'Completed'
       : amountPaid > 0
-      ? 'Partial'
-      : 'Pending';
+        ? 'Partial'
+        : 'Pending';
 
   const payments: PaymentRecord[] = [];
   if (isPaid && orderData.paymentMethod) {
@@ -600,8 +677,8 @@ export const saveOrder = async (orderData: OrderInput): Promise<Order> => {
     rawOrderType === 'Take Away' || rawOrderType === 'Parcel'
       ? 'Parcel'
       : rawOrderType === 'Car'
-      ? 'Car'
-      : 'Dine-in';
+        ? 'Car'
+        : 'Dine-in';
 
   const newOrder: Order = {
     ...orderData,
@@ -645,10 +722,10 @@ export const updateOrderStatus = async (
       const isCompleted = status === 'completed';
       const updatedItems = isCompleted
         ? order.items.map((i) =>
-            i.status === 'cancelled'
-              ? i
-              : { ...i, status: 'completed' as ItemStatus, servedQuantity: i.quantity }
-          )
+          i.status === 'cancelled'
+            ? i
+            : { ...i, status: 'completed' as ItemStatus, servedQuantity: i.quantity }
+        )
         : order.items;
 
       return {
@@ -827,70 +904,127 @@ export const incrementItemServedQuantity = async (
   return updatedOrders;
 };
 
+export interface SplitPaymentInput {
+  upiPaid: number;
+  cashPaid: number;
+}
+
 /**
  * Updates the payment status and payment method of an order.
- * Supports split payment tracking (e.g. initial UPI + add-on Cash).
+ * Supports split payment tracking (e.g. initial UPI + add-on Cash or arbitrary custom split).
  */
 export const updateOrderPayment = async (
   orderId: string,
-  paymentMethod: 'UPI' | 'Cash',
-  payAmount?: number
+  paymentMethod: PaymentMethod,
+  payAmount?: number,
+  splitDetails?: SplitPaymentInput
 ): Promise<Order[]> => {
   const existingOrders = await getOrders();
   const nowIso = new Date().toISOString();
   const updatedOrders = existingOrders.map((order) => {
     if (order.id === orderId) {
-      const existingPayments: PaymentRecord[] = Array.isArray(order.payments)
-        ? [...order.payments]
-        : typeof order.amountPaid === 'number' && order.amountPaid > 0 && order.paymentMethod
-        ? [
-            {
-              method: order.paymentMethod === 'Cash' ? 'Cash' : 'UPI',
-              amount: order.amountPaid,
-              paidAt: order.timestamp,
-            },
-          ]
-        : [];
+      const grandTotal = typeof order.grandTotal === 'number' && order.grandTotal > 0
+        ? order.grandTotal
+        : (order.totalAmount || 0);
 
-      const currentPaidBefore = existingPayments.reduce((s, p) => s + p.amount, 0);
-      const currentDue = Math.max(0, order.totalAmount - currentPaidBefore);
-      const amountPaying =
-        typeof payAmount === 'number' && payAmount > 0
-          ? Math.min(payAmount, currentDue > 0 ? currentDue : order.totalAmount)
-          : currentDue > 0
-          ? currentDue
-          : order.totalAmount;
+      const prevUpi = getOrderUpiPaid(order);
+      const prevCash = getOrderCashPaid(order);
+      const prevPaid = prevUpi + prevCash;
+      const currentDue = Math.max(0, grandTotal - prevPaid);
 
-      const newRecord: PaymentRecord = {
-        method: paymentMethod,
-        amount: amountPaying,
-        paidAt: nowIso,
-      };
+      let newUpi = prevUpi;
+      let newCash = prevCash;
 
-      const updatedPayments = [...existingPayments, newRecord];
-      const totalPaid = updatedPayments.reduce((s, p) => s + p.amount, 0);
-      const balanceDue = Math.max(0, order.totalAmount - totalPaid);
+      if (splitDetails) {
+        // Accumulate new split payment amounts on top of existing payments (DO NOT overwrite)
+        const enteredUpi = Math.max(0, splitDetails.upiPaid || 0);
+        const enteredCash = Math.max(0, splitDetails.cashPaid || 0);
+        newUpi = prevUpi + enteredUpi;
+        newCash = prevCash + enteredCash;
+      } else {
+        const amountPaying =
+          typeof payAmount === 'number' && payAmount > 0
+            ? Math.min(payAmount, currentDue > 0 ? currentDue : grandTotal)
+            : currentDue > 0
+              ? currentDue
+              : grandTotal;
 
-      const hasUpi = updatedPayments.some((p) => p.method === 'UPI' && p.amount > 0);
-      const hasCash = updatedPayments.some((p) => p.method === 'Cash' && p.amount > 0);
-      const combinedMethod: PaymentMethod =
-        hasUpi && hasCash ? 'UPI + Cash' : paymentMethod;
+        if (paymentMethod === 'Cash') {
+          newCash = prevCash + amountPaying;
+        } else {
+          newUpi = prevUpi + amountPaying;
+        }
+      }
 
-      const paymentStatus: PaymentStatus =
-        balanceDue <= 0
-          ? 'Completed'
-          : totalPaid > 0
-          ? 'Partial'
-          : 'Pending';
+      const totalPaid = newUpi + newCash;
+      const balanceDue = Math.max(0, grandTotal - totalPaid);
+      const isSettled = balanceDue <= 0 && totalPaid >= grandTotal;
+
+      let effectiveMethod: PaymentMethod = paymentMethod;
+      if (newUpi > 0 && newCash > 0) {
+        effectiveMethod = 'Split';
+      } else if (newUpi > 0) {
+        effectiveMethod = 'UPI';
+      } else if (newCash > 0) {
+        effectiveMethod = 'Cash';
+      }
+
+      let paymentStatus: PaymentStatus = 'Unpaid';
+      if (isSettled) {
+        paymentStatus = 'Paid';
+      } else if (totalPaid > 0) {
+        paymentStatus = 'Partial';
+      } else {
+        paymentStatus = 'Unpaid';
+      }
+
+      const updatedPayments: PaymentRecord[] = Array.isArray(order.payments) ? [...order.payments] : [];
+      if (splitDetails) {
+        if (splitDetails.upiPaid > 0) {
+          updatedPayments.push({
+            method: 'UPI',
+            amount: splitDetails.upiPaid,
+            paidAt: nowIso,
+          });
+        }
+        if (splitDetails.cashPaid > 0) {
+          updatedPayments.push({
+            method: 'Cash',
+            amount: splitDetails.cashPaid,
+            paidAt: nowIso,
+          });
+        }
+      } else {
+        const addedUpi = newUpi - prevUpi;
+        const addedCash = newCash - prevCash;
+        if (addedUpi > 0) {
+          updatedPayments.push({
+            method: 'UPI',
+            amount: addedUpi,
+            paidAt: nowIso,
+          });
+        }
+        if (addedCash > 0) {
+          updatedPayments.push({
+            method: 'Cash',
+            amount: addedCash,
+            paidAt: nowIso,
+          });
+        }
+      }
 
       return {
         ...order,
+        grandTotal,
+        totalAmount: grandTotal,
+        upiPaid: newUpi,
+        cashPaid: newCash,
         amountPaid: totalPaid,
         paidAmount: totalPaid,
         balanceDue,
-        isPaid: balanceDue <= 0,
+        isPaid: isSettled,
         paymentStatus,
-        paymentMethod: combinedMethod,
+        paymentMethod: effectiveMethod,
         payments: updatedPayments,
       };
     }
@@ -915,7 +1049,8 @@ export const updateOrderPayment = async (
  */
 export const updateOrderItems = async (
   orderId: string,
-  updatedItems: CartItem[]
+  updatedItems: CartItem[],
+  orderNotes?: string
 ): Promise<Order[]> => {
   const existingOrders = await getOrders();
   const updatedOrders = existingOrders.map((order) => {
@@ -930,19 +1065,20 @@ export const updateOrderItems = async (
       const newTotal = Math.max(0, rawSubtotal - discount);
 
       // Determine money collected so far
-      const currentPaid = typeof order.amountPaid === 'number'
-        ? order.amountPaid
-        : (order.paymentStatus === 'Completed' ? order.totalAmount : 0);
-
+      const currentUpi = getOrderUpiPaid(order);
+      const currentCash = getOrderCashPaid(order);
+      const currentPaid = (currentUpi + currentCash > 0)
+        ? (currentUpi + currentCash)
+        : getOrderAmountPaid(order);
       const balanceDue = Math.max(0, newTotal - currentPaid);
 
-      let newPaymentStatus: PaymentStatus = 'Pending';
+      let newPaymentStatus: PaymentStatus = 'Unpaid';
       if (currentPaid === 0) {
-        newPaymentStatus = 'Pending';
+        newPaymentStatus = 'Unpaid';
       } else if (currentPaid > 0 && balanceDue > 0) {
         newPaymentStatus = 'Partial';
       } else {
-        newPaymentStatus = 'Completed';
+        newPaymentStatus = 'Paid';
       }
 
       // Check if order has any unserved items
@@ -974,9 +1110,15 @@ export const updateOrderItems = async (
       return {
         ...order,
         items: sanitizedItems,
+        notes: orderNotes !== undefined ? orderNotes : order.notes,
+        grandTotal: newTotal,
         totalAmount: newTotal,
+        upiPaid: currentUpi,
+        cashPaid: currentCash,
         amountPaid: currentPaid,
+        paidAmount: currentPaid,
         balanceDue,
+        isPaid: newPaymentStatus === 'Paid' && balanceDue === 0,
         status: isPreparing ? 'preparing' : order.status,
         completedAt: isPreparing ? undefined : order.completedAt,
         paymentStatus: newPaymentStatus,
@@ -993,6 +1135,326 @@ export const updateOrderItems = async (
   } catch {
     // Fallback
   }
+
+  return updatedOrders;
+};
+
+export interface CancelOrderItemOptions {
+  orderId: string;
+  itemIndex: number;
+  decrementOnly?: boolean;
+  refundMethod?: 'Cash' | 'UPI';
+  cancelReason?: string;
+}
+
+/**
+ * Cancels a single dish item (or decrements quantity by 1) with automatic refund settlement.
+ */
+export const cancelOrderItemWithRefund = async (
+  options: CancelOrderItemOptions
+): Promise<Order[]> => {
+  const { orderId, itemIndex, decrementOnly, refundMethod = 'Cash', cancelReason } = options;
+  const existingOrders = await getOrders();
+  const nowIso = new Date().toISOString();
+
+  const updatedOrders = existingOrders.map((order) => {
+    if (order.id === orderId) {
+      const itemsCopy = [...order.items];
+      const targetItem = itemsCopy[itemIndex];
+      if (!targetItem) return order;
+
+      if (decrementOnly && targetItem.quantity > 1) {
+        const nextQty = targetItem.quantity - 1;
+        const nextServed = Math.min(nextQty, targetItem.servedQuantity || 0);
+        itemsCopy[itemIndex] = {
+          ...targetItem,
+          quantity: nextQty,
+          servedQuantity: nextServed,
+        };
+      } else {
+        itemsCopy[itemIndex] = {
+          ...targetItem,
+          status: 'cancelled' as ItemStatus,
+          servedQuantity: 0,
+        };
+      }
+
+      const rawSubtotal = recalculateOrderTotal(itemsCopy);
+      const discount = Math.min(rawSubtotal, Math.max(0, order.discount || 0));
+      const newGrandTotal = Math.max(0, rawSubtotal - discount);
+
+      const currentUpi = getOrderUpiPaid(order);
+      const currentCash = getOrderCashPaid(order);
+      const alreadyPaid = currentUpi + currentCash;
+
+      let newUpi = currentUpi;
+      let newCash = currentCash;
+      let refundedUpi = order.refundedUpi || 0;
+      let refundedCash = order.refundedCash || 0;
+
+      if (alreadyPaid > newGrandTotal) {
+        const refundDue = alreadyPaid - newGrandTotal;
+        if (refundMethod === 'Cash') {
+          refundedCash += refundDue;
+          if (newCash >= refundDue) {
+            newCash -= refundDue;
+          } else {
+            const rem = refundDue - newCash;
+            newCash = 0;
+            newUpi = Math.max(0, newUpi - rem);
+          }
+        } else {
+          refundedUpi += refundDue;
+          if (newUpi >= refundDue) {
+            newUpi -= refundDue;
+          } else {
+            const rem = refundDue - newUpi;
+            newUpi = 0;
+            newCash = Math.max(0, newCash - rem);
+          }
+        }
+      }
+
+      const totalPaid = newUpi + newCash;
+      const balanceDue = Math.max(0, newGrandTotal - totalPaid);
+      const nonCancelled = itemsCopy.filter((i) => i.status !== 'cancelled');
+
+      let paymentStatus: PaymentStatus = 'Unpaid';
+      if (nonCancelled.length === 0 && totalPaid === 0) {
+        paymentStatus = alreadyPaid > 0 ? 'Refunded' : 'Unpaid';
+      } else if (balanceDue <= 0 && totalPaid >= newGrandTotal && totalPaid > 0) {
+        paymentStatus = 'Paid';
+      } else if (totalPaid > 0) {
+        paymentStatus = 'Partial';
+      } else {
+        paymentStatus = 'Unpaid';
+      }
+
+      const allItemsDone =
+        nonCancelled.length > 0 &&
+        nonCancelled.every(
+          (i) => i.status === 'completed' || (i.servedQuantity ?? 0) >= i.quantity
+        );
+
+      const isOrderCancelled = nonCancelled.length === 0;
+
+      return {
+        ...order,
+        items: itemsCopy,
+        grandTotal: newGrandTotal,
+        totalAmount: newGrandTotal,
+        upiPaid: newUpi,
+        cashPaid: newCash,
+        refundedUpi,
+        refundedCash,
+        cancelReason: cancelReason || order.cancelReason,
+        amountPaid: totalPaid,
+        paidAmount: totalPaid,
+        balanceDue,
+        isPaid: paymentStatus === 'Paid',
+        paymentStatus,
+        status: isOrderCancelled
+          ? ('Cancelled' as OrderStatus)
+          : allItemsDone && balanceDue <= 0
+            ? 'completed'
+            : order.status,
+        completedAt:
+          allItemsDone && balanceDue <= 0
+            ? order.completedAt || nowIso
+            : order.completedAt,
+      };
+    }
+    return order;
+  });
+
+  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedOrders));
+
+  try {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  } catch { }
+
+  return updatedOrders;
+};
+
+/**
+ * Cancels a full order with optional refund settlement (Cash or UPI).
+ * Preserves the order in AsyncStorage for token sequence continuity and reporting.
+ */
+export const cancelFullOrder = async (
+  orderId: string,
+  refundMethod: 'Cash' | 'UPI' = 'Cash',
+  cancelReason?: string
+): Promise<Order[]> => {
+  const existingOrders = await getOrders();
+  const updatedOrders = existingOrders.map((order) => {
+    if (order.id === orderId) {
+      const currentUpi = getOrderUpiPaid(order);
+      const currentCash = getOrderCashPaid(order);
+      const alreadyPaid = currentUpi + currentCash;
+
+      let refundedUpi = order.refundedUpi || 0;
+      let refundedCash = order.refundedCash || 0;
+
+      if (alreadyPaid > 0) {
+        if (refundMethod === 'UPI') {
+          refundedUpi += alreadyPaid;
+        } else {
+          refundedCash += alreadyPaid;
+        }
+      }
+
+      const cancelledItems = order.items.map((i) => ({
+        ...i,
+        status: 'cancelled' as ItemStatus,
+      }));
+
+      return {
+        ...order,
+        items: cancelledItems,
+        status: 'Cancelled' as OrderStatus,
+        paymentStatus: alreadyPaid > 0 ? ('Refunded' as PaymentStatus) : (order.paymentStatus || 'Unpaid'),
+        upiPaid: 0,
+        cashPaid: 0,
+        amountPaid: 0,
+        paidAmount: 0,
+        balanceDue: 0,
+        isPaid: false,
+        refundedUpi,
+        refundedCash,
+        cancelReason: cancelReason || order.cancelReason || 'Cancelled by staff',
+      };
+    }
+    return order;
+  });
+
+  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedOrders));
+
+  try {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+  } catch { }
+
+  return updatedOrders;
+};
+
+/**
+ * Updates order items with refund handling when reducing items on a paid ticket.
+ */
+export const updateOrderItemsWithRefund = async (
+  orderId: string,
+  updatedItems: CartItem[],
+  orderNotes?: string,
+  refundMethod: 'Cash' | 'UPI' = 'Cash',
+  cancelReason?: string
+): Promise<Order[]> => {
+  const existingOrders = await getOrders();
+
+  const updatedOrders = existingOrders.map((order) => {
+    if (order.id === orderId) {
+      const baseItems = updatedItems.filter((i) => !i.isAddon && !i.addedAt);
+      const addonItems = updatedItems.filter((i) => i.isAddon || i.addedAt);
+      const orderedItems = [...baseItems, ...addonItems];
+
+      const rawSubtotal = recalculateOrderTotal(orderedItems);
+      const discount = Math.min(rawSubtotal, Math.max(0, order.discount || 0));
+      const newTotal = Math.max(0, rawSubtotal - discount);
+
+      const currentUpi = getOrderUpiPaid(order);
+      const currentCash = getOrderCashPaid(order);
+      const alreadyPaid = currentUpi + currentCash;
+
+      let newUpi = currentUpi;
+      let newCash = currentCash;
+      let refundedUpi = order.refundedUpi || 0;
+      let refundedCash = order.refundedCash || 0;
+
+      if (alreadyPaid > newTotal) {
+        const refundDue = alreadyPaid - newTotal;
+        if (refundMethod === 'Cash') {
+          refundedCash += refundDue;
+          if (newCash >= refundDue) {
+            newCash -= refundDue;
+          } else {
+            const rem = refundDue - newCash;
+            newCash = 0;
+            newUpi = Math.max(0, newUpi - rem);
+          }
+        } else {
+          refundedUpi += refundDue;
+          if (newUpi >= refundDue) {
+            newUpi -= refundDue;
+          } else {
+            const rem = refundDue - newUpi;
+            newUpi = 0;
+            newCash = Math.max(0, newCash - rem);
+          }
+        }
+      }
+
+      const totalPaid = newUpi + newCash;
+      const balanceDue = Math.max(0, newTotal - totalPaid);
+
+      let newPaymentStatus: PaymentStatus = 'Unpaid';
+      if (totalPaid === 0) {
+        newPaymentStatus = 'Unpaid';
+      } else if (totalPaid > 0 && balanceDue > 0) {
+        newPaymentStatus = 'Partial';
+      } else {
+        newPaymentStatus = 'Paid';
+      }
+
+      const hasUnservedItems = orderedItems.some(
+        (i) =>
+          i.status !== 'cancelled' &&
+          (i.status === 'pending' || (i.servedQuantity ?? 0) < i.quantity)
+      );
+
+      const hadNewItems = orderedItems.some(
+        (item) => !order.items.some((orig) => orig.id === item.id)
+      );
+
+      const sanitizedItems = orderedItems.map((item) => {
+        const isExisting = order.items.some((orig) => orig.id === item.id);
+        if (!isExisting) {
+          return {
+            ...item,
+            notified: false,
+            notifiedAt: undefined,
+          };
+        }
+        return item;
+      });
+
+      const isPreparing = hasUnservedItems || hadNewItems || order.status === 'preparing';
+
+      return {
+        ...order,
+        items: sanitizedItems,
+        notes: orderNotes !== undefined ? orderNotes : order.notes,
+        grandTotal: newTotal,
+        totalAmount: newTotal,
+        upiPaid: newUpi,
+        cashPaid: newCash,
+        refundedUpi,
+        refundedCash,
+        cancelReason: cancelReason || order.cancelReason,
+        amountPaid: totalPaid,
+        paidAmount: totalPaid,
+        balanceDue,
+        isPaid: newPaymentStatus === 'Paid' && balanceDue === 0,
+        status: isPreparing ? 'preparing' : order.status,
+        completedAt: isPreparing ? undefined : order.completedAt,
+        paymentStatus: newPaymentStatus,
+        notified: hadNewItems ? false : order.notified,
+      };
+    }
+    return order;
+  });
+
+  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedOrders));
+
+  try {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  } catch { }
 
   return updatedOrders;
 };
@@ -1169,13 +1631,20 @@ export const getDailyMetrics = async (): Promise<DailyMetrics> => {
   await checkAndHandleDailyRollover();
   const orders = await getOrders();
   const todayOrders = orders.filter((o) => isOrderFromToday(o.timestamp));
-  const totalRevenue = todayOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-  const activeOrders = todayOrders.filter((o) => o.status === 'preparing').length;
-  const completedOrders = todayOrders.filter((o) => o.status === 'completed').length;
+  const validTodayOrders = todayOrders.filter(
+    (o) => o.status !== 'cancelled' && o.status !== 'Cancelled'
+  );
+  const totalUpiRevenue = validTodayOrders.reduce((sum, o) => sum + getOrderUpiPaid(o), 0);
+  const totalCashRevenue = validTodayOrders.reduce((sum, o) => sum + getOrderCashPaid(o), 0);
+  const totalRevenue = totalUpiRevenue + totalCashRevenue;
+  const activeOrders = validTodayOrders.filter((o) => o.status === 'preparing').length;
+  const completedOrders = validTodayOrders.filter((o) => o.status === 'completed').length;
 
   return {
-    totalOrders: todayOrders.length,
+    totalOrders: validTodayOrders.length,
     totalRevenue,
+    totalUpiRevenue,
+    totalCashRevenue,
     activeOrders,
     completedOrders,
   };
@@ -1287,6 +1756,64 @@ export const filterOrdersForExport = (
   const endFormatted = formatDateYYYYMMDD(endDate);
 
   return { startDate, endDate, filtered, startFormatted, endFormatted };
+};
+
+// ==========================================
+// ITEM-WISE SALES SUMMARY (ADMIN & EXPORT)
+// ==========================================
+
+/**
+ * Aggregates all non-cancelled orders from a given set of orders (e.g. today's shift),
+ * groups items by dish ID/name, and sums quantitySold and itemRevenue, sorted descending
+ * by highest quantity sold.
+ */
+export const getItemsSoldSummary = (orders: Order[]): ItemSalesSummary[] => {
+  const itemMap = new Map<string, ItemSalesSummary>();
+
+  for (const order of orders) {
+    if ((order as any).status === 'cancelled' || order.status === 'Cancelled') continue;
+    if (!Array.isArray(order.items)) continue;
+
+    for (const item of order.items) {
+      if (item.status === 'cancelled') continue;
+      const key = item.id || item.name;
+      const existing = itemMap.get(key);
+      const qty = typeof item.quantity === 'number' ? item.quantity : 1;
+      const price = typeof item.price === 'number' ? item.price : 0;
+      const rev = price * qty;
+
+      if (existing) {
+        existing.quantitySold += qty;
+        existing.itemRevenue += rev;
+      } else {
+        itemMap.set(key, {
+          id: item.id || key,
+          name: item.name || 'Dish',
+          category: item.category || 'Other',
+          isVeg: Boolean(item.isVeg),
+          price,
+          quantitySold: qty,
+          itemRevenue: rev,
+        });
+      }
+    }
+  }
+
+  return Array.from(itemMap.values()).sort((a, b) => {
+    if (b.quantitySold !== a.quantitySold) {
+      return b.quantitySold - a.quantitySold;
+    }
+    return b.itemRevenue - a.itemRevenue;
+  });
+};
+
+/**
+ * Returns the items sold summary for today's shift.
+ */
+export const getItemsSoldToday = async (): Promise<ItemSalesSummary[]> => {
+  const orders = await getOrders();
+  const todayOrders = orders.filter((o) => isOrderFromToday(o.timestamp));
+  return getItemsSoldSummary(todayOrders);
 };
 
 export const generateCsvFromOrders = (orders: Order[]): string => {
@@ -1995,7 +2522,7 @@ export const syncCustomerContactsToPhone = async (
 
   try {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  } catch {}
+  } catch { }
 
   return {
     addedCount,
@@ -2012,7 +2539,7 @@ export const getHolidaySentPhones = async (dateKey: string): Promise<string[]> =
     if (raw) {
       return JSON.parse(raw);
     }
-  } catch {}
+  } catch { }
   return [];
 };
 

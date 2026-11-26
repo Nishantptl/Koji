@@ -13,6 +13,8 @@ import {
   Check,
   X,
   MessageCircle,
+  Ban,
+  RotateCcw,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Order, CartItem } from '../types';
@@ -55,6 +57,8 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
   const timeStr = formatTime(order.timestamp);
   const dateStr = formatDate(order.timestamp);
   const isPreparing = order.status === 'preparing';
+  const isCancelled = order.status === 'Cancelled' || (order.status as any) === 'cancelled';
+  const isRefunded = order.paymentStatus === 'Refunded';
 
   const balanceDue = getOrderBalanceDue(order);
   const amountPaid = getOrderAmountPaid(order);
@@ -70,12 +74,15 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
       ? 'Car'
       : 'Dine-in';
 
-  const paymentLabel = isPaid
-    ? order.paymentMethod === 'UPI + Cash' ||
+  const paymentLabel = isRefunded
+    ? 'Refunded'
+    : isPaid
+    ? order.paymentMethod === 'Split' ||
+      order.paymentMethod === 'UPI + Cash' ||
       (Array.isArray(order.payments) &&
         order.payments.some((p) => p.method === 'UPI' && p.amount > 0) &&
         order.payments.some((p) => p.method === 'Cash' && p.amount > 0))
-      ? 'UPI + Cash'
+      ? 'Split'
       : order.paymentMethod === 'Cash' ||
         (Array.isArray(order.payments) &&
           order.payments.some((p) => p.method === 'Cash' && p.amount > 0) &&
@@ -83,7 +90,7 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
       ? 'Cash'
       : 'UPI'
     : isPartial
-    ? `Due ₹${balanceDue}`
+    ? `₹${balanceDue} Due`
     : 'Payment';
 
   return (
@@ -161,70 +168,114 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
       <View style={styles.statusBarRow}>
         <View style={styles.actionBarGroup}>
           {/* Left: Soft Mint-Green Fill [ ✎ Edit Order ] */}
-          <TouchableOpacity
-            activeOpacity={0.75}
-            onPress={() => onEdit?.(order)}
-            style={styles.actionBtnEdit}
-            hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
-          >
-            <Edit3
-              size={12}
-              color={COLORS.forest}
-              strokeWidth={2.2}
-            />
-            <Text
-              style={styles.actionBtnEditText}
-              numberOfLines={1}
-              adjustsFontSizeToFit={true}
-              minimumFontScale={0.85}
+          {isCancelled ? (
+            <View style={[styles.actionBtnEdit, styles.actionBtnDisabled]}>
+              <Edit3
+                size={12}
+                color={COLORS.slate}
+                strokeWidth={2.2}
+              />
+              <Text
+                style={[styles.actionBtnEditText, styles.actionBtnTextDisabled]}
+                numberOfLines={1}
+                adjustsFontSizeToFit={true}
+                minimumFontScale={0.85}
+              >
+                Edit Order
+              </Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => onEdit?.(order)}
+              style={styles.actionBtnEdit}
+              hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
             >
-              Edit Order
-            </Text>
-          </TouchableOpacity>
-
-          {/* Center: Warm Amber (Pending) or Mint Green (Paid) [ 💳 Payment / ✓ UPI ] */}
-          <TouchableOpacity
-            disabled={isFullyPaid}
-            activeOpacity={isFullyPaid ? 1 : 0.75}
-            onPress={() => {
-              if (!isFullyPaid) {
-                onPayment?.(order);
-              }
-            }}
-            style={[
-              styles.actionBtnPayment,
-              isPaid
-                ? styles.paymentPillCompleted
-                : styles.paymentPillPending,
-            ]}
-            hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
-          >
-            {!isPaid ? (
-              <CreditCard size={12} color={COLORS.amber} strokeWidth={2.2} />
-            ) : (
-              <Check
+              <Edit3
                 size={12}
                 color={COLORS.forest}
-                strokeWidth={2.6}
+                strokeWidth={2.2}
               />
-            )}
-            <Text
-              style={[
-                styles.actionBtnPaymentText,
-                isPaid
-                  ? styles.paymentPillTextCompleted
-                  : styles.paymentPillTextPending,
-              ]}
-              numberOfLines={1}
-              adjustsFontSizeToFit={true}
-              minimumFontScale={0.85}
-            >
-              {paymentLabel}
-            </Text>
-          </TouchableOpacity>
+              <Text
+                style={styles.actionBtnEditText}
+                numberOfLines={1}
+                adjustsFontSizeToFit={true}
+                minimumFontScale={0.85}
+              >
+                Edit Order
+              </Text>
+            </TouchableOpacity>
+          )}
 
-          {/* Right: Solid Amber [ Mark Done ] / Soft Mint [ Done Time ] */}
-          {isPreparing ? (
+          {/* Center: Warm Amber (Pending) or Mint Green (Paid) or Soft Red (Refunded) */}
+          {isRefunded ? (
+            <View style={[styles.actionBtnPayment, styles.paymentPillRefunded]}>
+              <RotateCcw size={12} color={COLORS.danger} strokeWidth={2.4} />
+              <Text
+                style={[styles.actionBtnPaymentText, styles.paymentPillTextRefunded]}
+                numberOfLines={1}
+                adjustsFontSizeToFit={true}
+                minimumFontScale={0.85}
+              >
+                Refunded
+              </Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              disabled={isFullyPaid || isCancelled}
+              activeOpacity={isFullyPaid || isCancelled ? 1 : 0.75}
+              onPress={() => {
+                if (!isFullyPaid && !isCancelled) {
+                  onPayment?.(order);
+                }
+              }}
+              style={[
+                styles.actionBtnPayment,
+                isPaid
+                  ? styles.paymentPillCompleted
+                  : styles.paymentPillPending,
+              ]}
+              hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
+            >
+              {!isPaid ? (
+                <CreditCard size={12} color={COLORS.amber} strokeWidth={2.2} />
+              ) : (
+                <Check
+                  size={12}
+                  color={COLORS.forest}
+                  strokeWidth={2.6}
+                />
+              )}
+              <Text
+                style={[
+                  styles.actionBtnPaymentText,
+                  isPaid
+                    ? styles.paymentPillTextCompleted
+                    : styles.paymentPillTextPending,
+                ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit={true}
+                minimumFontScale={0.85}
+              >
+                {paymentLabel}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Right: Solid Amber [ Mark Done ] / Soft Mint [ Done Time ] / Muted Red [ CANCELLED ] */}
+          {isCancelled ? (
+            <View style={styles.actionBtnCancelledBadge}>
+              <Ban size={12} color={COLORS.danger} strokeWidth={2.4} />
+              <Text
+                style={styles.actionBtnCancelledText}
+                numberOfLines={1}
+                adjustsFontSizeToFit={true}
+                minimumFontScale={0.85}
+              >
+                CANCELLED
+              </Text>
+            </View>
+          ) : isPreparing ? (
             <TouchableOpacity
               activeOpacity={0.75}
               onPress={() => onMarkDone?.(order.id)}
@@ -374,19 +425,26 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
                   isItemCancelled && styles.itemRowCancelled,
                 ]}
               >
-                {/* Left: Veg/Non-Veg Badge + Dish Name (No quantity prefix) */}
+                {/* Left: Veg/Non-Veg Badge + Dish Name & Per-Dish Note */}
                 <View style={styles.itemLeft}>
                   <VegBadge isVeg={cartItem.isVeg} size={15} />
-                  <Text
-                    style={[
-                      styles.itemNameText,
-                      isItemCancelled && styles.textLineThrough,
-                    ]}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {cartItem.name}
-                  </Text>
+                  <View style={styles.itemNameAndNoteCol}>
+                    <Text
+                      style={[
+                        styles.itemNameText,
+                        isItemCancelled && styles.textLineThrough,
+                      ]}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
+                      {cartItem.name}
+                    </Text>
+                    {Boolean(cartItem.notes) && (
+                      <Text style={styles.itemNoteSubText} numberOfLines={1}>
+                        📝 {cartItem.notes}
+                      </Text>
+                    )}
+                  </View>
                 </View>
 
                 {/* Right-Aligned Controls: Status Toggle Pill, Cancel Pill, WhatsApp Button */}
@@ -647,6 +705,14 @@ const styles = StyleSheet.create({
     color: COLORS.forest,
     ...FONTS.bold,
   },
+  actionBtnDisabled: {
+    backgroundColor: '#F0F3F1',
+    borderColor: '#DDE3DF',
+    opacity: 0.6,
+  },
+  actionBtnTextDisabled: {
+    color: COLORS.slate,
+  },
   actionBtnPayment: {
     flex: 1,
     flexDirection: 'row',
@@ -666,6 +732,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.successTint,
     borderColor: COLORS.success,
   },
+  paymentPillRefunded: {
+    backgroundColor: '#FFF0ED',
+    borderColor: '#E57373',
+  },
   actionBtnPaymentText: {
     fontSize: 12,
     ...FONTS.bold,
@@ -675,6 +745,27 @@ const styles = StyleSheet.create({
   },
   paymentPillTextCompleted: {
     color: COLORS.forest,
+  },
+  paymentPillTextRefunded: {
+    color: COLORS.danger,
+  },
+  actionBtnCancelledBadge: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    height: 38,
+    backgroundColor: COLORS.dangerTint,
+    borderColor: COLORS.danger,
+    borderWidth: 1.2,
+    borderRadius: 12,
+  },
+  actionBtnCancelledText: {
+    fontSize: 12,
+    color: COLORS.danger,
+    ...FONTS.bold,
   },
   actionBtnDoneAmber: {
     flex: 1,
@@ -822,11 +913,20 @@ const styles = StyleSheet.create({
     color: COLORS.slate,
     ...FONTS.semibold,
   },
-  itemNameText: {
+  itemNameAndNoteCol: {
     flex: 1,
+    justifyContent: 'center',
+  },
+  itemNameText: {
     fontSize: 12.5,
     color: COLORS.forest,
     ...FONTS.semibold,
+  },
+  itemNoteSubText: {
+    fontSize: 10,
+    color: COLORS.amber,
+    ...FONTS.semibold,
+    marginTop: 1,
   },
   textLineThrough: {
     textDecorationLine: 'line-through',

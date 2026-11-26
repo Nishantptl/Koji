@@ -17,6 +17,9 @@ import {
   Trash2,
   Search,
   CheckCircle2,
+  Printer,
+  FileText,
+  Ban,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Order, CartItem, MenuItem } from '../types';
@@ -25,27 +28,65 @@ import { TokenBadge } from './TokenBadge';
 import { getMenuItems, recalculateOrderTotal, formatTime } from '../services/storage';
 import { COLORS, FONTS, SPACING } from '../constants/theme';
 
+const PRESET_KITCHEN_CHIPS = [
+  'Extra Spicy',
+  'Less Spicy',
+  'No Onion/Garlic',
+  'Pack Separate',
+  'Urgent',
+];
+
 interface EditOrderModalProps {
   visible: boolean;
   order: Order | null;
   onClose: () => void;
-  onSave: (orderId: string, updatedItems: CartItem[]) => void;
+  onSave: (
+    orderId: string,
+    updatedItems: CartItem[],
+    orderNotes?: string,
+    shouldPrintKot?: boolean
+  ) => void;
+  onCancelOrder?: (order: Order) => void;
+  onRequestRefund?: (
+    order: Order,
+    updatedItems: CartItem[],
+    refundDue: number,
+    orderNotes?: string,
+    shouldPrintKot?: boolean
+  ) => void;
 }
 
 interface EditOrderModalContentProps {
   order: Order;
   onClose: () => void;
-  onSave: (orderId: string, updatedItems: CartItem[]) => void;
+  onSave: (
+    orderId: string,
+    updatedItems: CartItem[],
+    orderNotes?: string,
+    shouldPrintKot?: boolean
+  ) => void;
+  onCancelOrder?: (order: Order) => void;
+  onRequestRefund?: (
+    order: Order,
+    updatedItems: CartItem[],
+    refundDue: number,
+    orderNotes?: string,
+    shouldPrintKot?: boolean
+  ) => void;
 }
 
 const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
   order,
   onClose,
   onSave,
+  onCancelOrder,
+  onRequestRefund,
 }) => {
   const [items, setItems] = useState<CartItem[]>(() =>
     order.items.map((i) => ({ ...i }))
   );
+  const [orderNotes, setOrderNotes] = useState<string>(order.notes || '');
+  const [activeNoteIndexes, setActiveNoteIndexes] = useState<{ [index: number]: boolean }>({});
   const [allMenu, setAllMenu] = useState<MenuItem[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -67,6 +108,41 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
   const activeTotal = useMemo(() => {
     return recalculateOrderTotal(items);
   }, [items]);
+
+  const handleToggleNoteInput = (index: number) => {
+    try {
+      Haptics.selectionAsync();
+    } catch {}
+    setActiveNoteIndexes((prev) => ({
+      ...prev,
+      [index]: !prev[index],
+    }));
+  };
+
+  const handleItemNoteChange = (index: number, text: string) => {
+    setItems((prev) => {
+      const copy = [...prev];
+      if (copy[index]) {
+        copy[index] = {
+          ...copy[index],
+          notes: text.trim() ? text : undefined,
+        };
+      }
+      return copy;
+    });
+  };
+
+  const handleAddPresetChip = (chip: string) => {
+    try {
+      Haptics.selectionAsync();
+    } catch {}
+    setOrderNotes((prev) => {
+      const cleanPrev = prev.trim();
+      if (!cleanPrev) return chip;
+      if (cleanPrev.toLowerCase().includes(chip.toLowerCase())) return cleanPrev;
+      return `${cleanPrev}, ${chip}`;
+    });
+  };
 
   const handleAddDish = (menuDish: MenuItem | CartItem) => {
     try {
@@ -118,8 +194,7 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
         return copy;
       }
 
-      // 3. Otherwise (the item has already been partially or fully served (servedQuantity > 0)
-      // or no item exists): Treat newly added dish as an INDEPENDENT BATCH with an isAddon: true flag,
+      // 3. Otherwise treat newly added dish as an INDEPENDENT BATCH with an isAddon: true flag,
       // its own unique item ID, its addition timestamp, and servedQuantity: 0.
       const nowIso = new Date().toISOString();
       const uniqueAddonId = `${baseDishId}_addon_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -216,13 +291,32 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
     });
   };
 
-  const handleSave = () => {
+  const handleSave = (shouldPrintKot: boolean) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {
       // Ignore
     }
-    onSave(order.id, items);
+
+    const alreadyPaid = (order.upiPaid || 0) + (order.cashPaid || 0);
+    const rawSubtotal = recalculateOrderTotal(items);
+    const discount = Math.min(rawSubtotal, Math.max(0, order.discount || 0));
+    const newGrandTotal = Math.max(0, rawSubtotal - discount);
+
+    if (alreadyPaid > newGrandTotal && onRequestRefund) {
+      const refundDue = alreadyPaid - newGrandTotal;
+      onRequestRefund(
+        order,
+        items,
+        refundDue,
+        orderNotes.trim() ? orderNotes.trim() : undefined,
+        shouldPrintKot
+      );
+      onClose();
+      return;
+    }
+
+    onSave(order.id, items, orderNotes.trim() ? orderNotes.trim() : undefined, shouldPrintKot);
     onClose();
   };
 
@@ -243,6 +337,19 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
         <View style={styles.headerTitleRow}>
           <Text style={styles.headerTitle}>Edit Order</Text>
           <TokenBadge token={order.token} variant="apricot" size="md" />
+          {onCancelOrder && (
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => {
+                onClose();
+                onCancelOrder(order);
+              }}
+              style={styles.cancelOrderHeaderBtn}
+            >
+              <Ban size={12} color={COLORS.danger} strokeWidth={2.4} />
+              <Text style={styles.cancelOrderHeaderBtnText}>Cancel Order</Text>
+            </TouchableOpacity>
+          )}
         </View>
         <TouchableOpacity
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
@@ -285,6 +392,7 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
             );
             const servedCount = cartItem.servedQuantity ?? 0;
             const isCannotDecrement = servedCount > 0 && cartItem.quantity <= servedCount;
+            const isNoteOpen = Boolean(activeNoteIndexes[idx] || cartItem.notes);
 
             return (
               <React.Fragment key={`${cartItem.id}_${idx}`}>
@@ -302,68 +410,117 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
                     isCancelled && styles.ticketItemRowCancelled,
                   ]}
                 >
-                  <View style={styles.ticketItemLeft}>
-                    <VegBadge isVeg={cartItem.isVeg} size={13} />
-                    <View style={styles.ticketItemNameCol}>
-                      <Text
-                        style={[
-                          styles.ticketItemName,
-                          isCancelled && styles.textLineThrough,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {cartItem.name}
+                  <View style={styles.ticketItemMainRow}>
+                    <View style={styles.ticketItemLeft}>
+                      <VegBadge isVeg={cartItem.isVeg} size={13} />
+                      <View style={styles.ticketItemNameCol}>
+                        <Text
+                          style={[
+                            styles.ticketItemName,
+                            isCancelled && styles.textLineThrough,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {cartItem.name}
+                        </Text>
+                        <View style={styles.ticketItemBadgeRow}>
+                          {servedCount > 0 && (
+                            <Text style={styles.servedBadge}>
+                              ✓ {servedCount}/{cartItem.quantity} served
+                            </Text>
+                          )}
+                          {cartItem.isAddon && (
+                            <Text style={styles.addedAtBadge}>
+                              + Add-on Batch
+                            </Text>
+                          )}
+                          {isCancelled && (
+                            <Text style={styles.cancelledBadge}>
+                              Cancelled (₹0)
+                            </Text>
+                          )}
+
+                          {/* Per-Item Note Toggle Button */}
+                          {!isCancelled && (
+                            <TouchableOpacity
+                              activeOpacity={0.75}
+                              onPress={() => handleToggleNoteInput(idx)}
+                              style={[
+                                styles.itemNoteToggleBtn,
+                                Boolean(cartItem.notes) && styles.itemNoteToggleBtnActive,
+                              ]}
+                              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                            >
+                              <FileText size={10} color={cartItem.notes ? COLORS.forest : COLORS.slate} />
+                              <Text
+                                style={[
+                                  styles.itemNoteToggleText,
+                                  Boolean(cartItem.notes) && styles.itemNoteToggleTextActive,
+                                ]}
+                              >
+                                {cartItem.notes ? 'Note' : '+ Note'}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+
+                    <View style={styles.ticketItemActions}>
+                      <Text style={styles.ticketItemPrice}>
+                        ₹{cartItem.price * cartItem.quantity}
                       </Text>
-                      {servedCount > 0 && (
-                        <Text style={styles.servedBadge}>
-                          ✓ {servedCount}/{cartItem.quantity} served
+
+                      <View style={styles.miniStepper}>
+                        <TouchableOpacity
+                          onPress={() => handleDecrement(idx)}
+                          disabled={isCannotDecrement}
+                          style={[styles.stepperBtn, isCannotDecrement && styles.btnDisabled]}
+                        >
+                          <Minus size={13} color={COLORS.white} />
+                        </TouchableOpacity>
+                        <Text style={styles.stepperQtyText}>
+                          {cartItem.quantity}
                         </Text>
-                      )}
-                      {cartItem.isAddon && (
-                        <Text style={styles.addedAtBadge}>
-                          + Add-on Batch
-                        </Text>
-                      )}
-                      {isCancelled && (
-                        <Text style={styles.cancelledBadge}>
-                          Cancelled (₹0)
-                        </Text>
-                      )}
+                        <TouchableOpacity
+                          onPress={() => handleIncrement(idx)}
+                          style={styles.stepperBtn}
+                        >
+                          <Plus size={13} color={COLORS.white} />
+                        </TouchableOpacity>
+                      </View>
+
+                      <TouchableOpacity
+                        onPress={() => handleRemove(idx)}
+                        disabled={servedCount > 0}
+                        style={[styles.trashBtn, servedCount > 0 && styles.btnDisabled]}
+                      >
+                        <Trash2 size={15} color={COLORS.danger} />
+                      </TouchableOpacity>
                     </View>
                   </View>
 
-                  <View style={styles.ticketItemActions}>
-                    <Text style={styles.ticketItemPrice}>
-                      ₹{cartItem.price * cartItem.quantity}
-                    </Text>
-
-                    <View style={styles.miniStepper}>
-                      <TouchableOpacity
-                        onPress={() => handleDecrement(idx)}
-                        disabled={isCannotDecrement}
-                        style={[styles.stepperBtn, isCannotDecrement && styles.btnDisabled]}
-                      >
-                        <Minus size={13} color={COLORS.white} />
-                      </TouchableOpacity>
-                      <Text style={styles.stepperQtyText}>
-                        {cartItem.quantity}
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => handleIncrement(idx)}
-                        style={styles.stepperBtn}
-                      >
-                        <Plus size={13} color={COLORS.white} />
-                      </TouchableOpacity>
+                  {/* Inline Preparation Note Input for this dish row */}
+                  {isNoteOpen && !isCancelled && (
+                    <View style={styles.itemNoteInputRow}>
+                      <TextInput
+                        style={styles.itemNoteInput}
+                        placeholder="Add prep note (e.g. Less spicy, No onion)..."
+                        placeholderTextColor={COLORS.slate}
+                        value={cartItem.notes || ''}
+                        onChangeText={(txt) => handleItemNoteChange(idx, txt)}
+                      />
+                      {Boolean(cartItem.notes) && (
+                        <TouchableOpacity
+                          onPress={() => handleItemNoteChange(idx, '')}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          style={styles.clearItemNoteBtn}
+                        >
+                          <X size={12} color={COLORS.danger} />
+                        </TouchableOpacity>
+                      )}
                     </View>
-
-                    <TouchableOpacity
-                      onPress={() => handleRemove(idx)}
-                      disabled={servedCount > 0}
-                      style={[styles.trashBtn, servedCount > 0 && styles.btnDisabled]}
-                    >
-                      <Trash2 size={15} color={COLORS.danger} />
-                    </TouchableOpacity>
-                  </View>
+                  )}
                 </View>
               </React.Fragment>
             );
@@ -375,7 +532,7 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
 
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>ADD MORE DISHES</Text>
-          <Text style={styles.hintText}>Stamps new dishes with live timestamp</Text>
+          <Text style={styles.hintText}>Appends as new add-on batch</Text>
         </View>
 
         {/* Quick Search */}
@@ -415,29 +572,88 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
             </View>
           ))}
         </View>
+
+        {/* Section 3: Extra Kitchen / Order-Level Notes with Quick Chips */}
+        <View style={styles.addSectionDivider} />
+
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>EXTRA KITCHEN / ORDER NOTE</Text>
+          <Text style={styles.hintText}>Printed on KOT slips</Text>
+        </View>
+
+        <View style={styles.orderNoteChipsRow}>
+          {PRESET_KITCHEN_CHIPS.map((chip) => {
+            const isIncluded = orderNotes.toLowerCase().includes(chip.toLowerCase());
+            return (
+              <TouchableOpacity
+                key={chip}
+                activeOpacity={0.75}
+                onPress={() => handleAddPresetChip(chip)}
+                style={[
+                  styles.orderNoteChip,
+                  isIncluded && styles.orderNoteChipSelected,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.orderNoteChipText,
+                    isIncluded && styles.orderNoteChipTextSelected,
+                  ]}
+                >
+                  {chip}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.orderNoteInputContainer}>
+          <TextInput
+            style={styles.orderNoteTextInput}
+            placeholder="Special preparation instructions, allergy requests, packing instructions..."
+            placeholderTextColor={COLORS.slate}
+            multiline
+            numberOfLines={2}
+            value={orderNotes}
+            onChangeText={setOrderNotes}
+          />
+          {Boolean(orderNotes) && (
+            <TouchableOpacity
+              onPress={() => setOrderNotes('')}
+              style={styles.clearOrderNoteBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <X size={14} color={COLORS.slate} />
+            </TouchableOpacity>
+          )}
+        </View>
       </ScrollView>
 
-      {/* Footer Save Action */}
+      {/* Footer: Dual Action Buttons */}
       <View style={styles.footer}>
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={handleSave}
-          style={styles.saveButton}
-        >
-          <CheckCircle2 size={18} color={COLORS.white} strokeWidth={2.4} />
-          <Text style={styles.saveButtonText}>
-            {(() => {
-              const currentPaid = typeof order.amountPaid === 'number'
-                ? order.amountPaid
-                : (order.paymentStatus === 'Completed' ? order.totalAmount : 0);
-              const estimatedDue = Math.max(0, activeTotal - currentPaid);
-              if (currentPaid > 0 && estimatedDue > 0) {
-                return `Save Ticket Changes • Total: ₹${activeTotal} (Due: ₹${estimatedDue})`;
-              }
-              return `Save Ticket Changes • ₹${activeTotal}`;
-            })()}
-          </Text>
-        </TouchableOpacity>
+        <View style={styles.footerDualRow}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => handleSave(false)}
+            style={styles.saveChangesOnlyBtn}
+          >
+            <CheckCircle2 size={16} color={COLORS.forest} strokeWidth={2.4} />
+            <Text style={styles.saveChangesOnlyBtnText} numberOfLines={1}>
+              Save Changes
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => handleSave(true)}
+            style={styles.saveAndPrintKotBtn}
+          >
+            <Printer size={16} color={COLORS.white} strokeWidth={2.4} />
+            <Text style={styles.saveAndPrintKotBtnText} numberOfLines={1}>
+              Save &amp; Print KOT
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -448,6 +664,8 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
   order,
   onClose,
   onSave,
+  onCancelOrder,
+  onRequestRefund,
 }) => {
   if (!order || !visible) return null;
 
@@ -468,6 +686,8 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
             order={order}
             onClose={onClose}
             onSave={onSave}
+            onCancelOrder={onCancelOrder}
+            onRequestRefund={onRequestRefund}
           />
         </View>
       </KeyboardAvoidingView>
@@ -509,6 +729,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    flex: 1,
+  },
+  cancelOrderHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FDECEB',
+    borderColor: COLORS.danger,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginLeft: 'auto',
+    marginRight: 8,
+  },
+  cancelOrderHeaderBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.danger,
   },
   headerTitle: {
     fontSize: 18,
@@ -520,63 +759,80 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: 16,
     backgroundColor: COLORS.sage,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
   },
   scrollContent: {
-    paddingHorizontal: SPACING.xl,
+    paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.md,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.xs,
   },
   sectionTitle: {
     fontSize: 11,
-    color: COLORS.slate,
+    color: COLORS.forest,
     ...FONTS.bold,
     letterSpacing: 0.8,
   },
   activeTotalText: {
-    fontSize: 13,
-    color: COLORS.forest,
+    fontSize: 12,
+    color: COLORS.amber,
     ...FONTS.heavy,
   },
   hintText: {
-    fontSize: 10,
+    fontSize: 10.5,
     color: COLORS.slate,
-    ...FONTS.regular,
+    ...FONTS.medium,
   },
   emptyItemsBox: {
-    backgroundColor: COLORS.sage,
-    borderRadius: 10,
-    padding: SPACING.md,
+    padding: SPACING.lg,
+    backgroundColor: COLORS.canvas,
+    borderRadius: 12,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    marginBottom: SPACING.md,
+    marginVertical: SPACING.sm,
   },
   emptyItemsText: {
     fontSize: 12,
     color: COLORS.slate,
-    ...FONTS.regular,
+    ...FONTS.medium,
+    textAlign: 'center',
+  },
+  modalAddonDivider: {
+    backgroundColor: COLORS.amberTint,
+    borderRadius: 6,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    alignSelf: 'center',
+    marginVertical: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(217, 119, 6, 0.25)',
+  },
+  modalAddonDividerText: {
+    fontSize: 9.5,
+    color: COLORS.amber,
+    ...FONTS.bold,
+    letterSpacing: 0.4,
   },
   ticketItemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: COLORS.sage,
-    borderRadius: 10,
-    padding: SPACING.sm,
-    marginBottom: 6,
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
   ticketItemRowCancelled: {
-    opacity: 0.5,
-    backgroundColor: COLORS.dangerTint,
+    opacity: 0.45,
+    backgroundColor: COLORS.canvas,
+  },
+  ticketItemMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   ticketItemLeft: {
     flexDirection: 'row',
@@ -588,48 +844,79 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   ticketItemName: {
-    fontSize: 13,
+    fontSize: 13.5,
     color: COLORS.forest,
     ...FONTS.bold,
+  },
+  ticketItemBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 2,
   },
   textLineThrough: {
     textDecorationLine: 'line-through',
     color: COLORS.slate,
   },
+  servedBadge: {
+    fontSize: 10,
+    color: COLORS.success,
+    ...FONTS.semibold,
+  },
   addedAtBadge: {
-    fontSize: 9,
+    fontSize: 10,
     color: COLORS.amber,
-    ...FONTS.heavy,
-    marginTop: 1,
+    ...FONTS.bold,
   },
   cancelledBadge: {
-    fontSize: 9,
+    fontSize: 10,
     color: COLORS.danger,
     ...FONTS.bold,
-    marginTop: 1,
   },
-  servedBadge: {
-    fontSize: 9,
-    color: COLORS.success,
-    ...FONTS.bold,
-    marginTop: 1,
-  },
-  btnDisabled: {
-    opacity: 0.35,
-  },
-  modalAddonDivider: {
+  itemNoteToggleBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 8,
-    paddingVertical: 3,
-    backgroundColor: COLORS.amberTint,
+    gap: 3,
+    backgroundColor: COLORS.canvas,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  itemNoteToggleBtnActive: {
+    backgroundColor: COLORS.sage,
+    borderColor: COLORS.forest,
+  },
+  itemNoteToggleText: {
+    fontSize: 9.5,
+    color: COLORS.slate,
+    ...FONTS.bold,
+  },
+  itemNoteToggleTextActive: {
+    color: COLORS.forest,
+  },
+  itemNoteInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.canvas,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: COLORS.amber,
+    borderColor: COLORS.border,
+    paddingHorizontal: 8,
+    marginTop: 6,
+    height: 34,
   },
-  modalAddonDividerText: {
-    fontSize: 10,
+  itemNoteInput: {
+    flex: 1,
+    fontSize: 11.5,
     color: COLORS.forest,
-    ...FONTS.bold,
+    ...FONTS.medium,
+    paddingVertical: 0,
+  },
+  clearItemNoteBtn: {
+    padding: 3,
   },
   ticketItemActions: {
     flexDirection: 'row',
@@ -640,7 +927,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: COLORS.forest,
     ...FONTS.bold,
-    minWidth: 42,
+    minWidth: 44,
     textAlign: 'right',
   },
   miniStepper: {
@@ -661,6 +948,9 @@ const styles = StyleSheet.create({
     ...FONTS.heavy,
     minWidth: 14,
     textAlign: 'center',
+  },
+  btnDisabled: {
+    opacity: 0.35,
   },
   trashBtn: {
     padding: 4,
@@ -694,7 +984,7 @@ const styles = StyleSheet.create({
     padding: SPACING.sm,
     borderWidth: 1,
     borderColor: COLORS.border,
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.sm,
   },
   menuAddRow: {
     flexDirection: 'row',
@@ -739,6 +1029,58 @@ const styles = StyleSheet.create({
     color: COLORS.forest,
     ...FONTS.bold,
   },
+  // Order-Level Notes Styles
+  orderNoteChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginVertical: 6,
+  },
+  orderNoteChip: {
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  orderNoteChipSelected: {
+    backgroundColor: COLORS.amberTint,
+    borderColor: COLORS.amber,
+  },
+  orderNoteChipText: {
+    fontSize: 11,
+    color: COLORS.forest,
+    ...FONTS.semibold,
+  },
+  orderNoteChipTextSelected: {
+    color: COLORS.amber,
+    ...FONTS.bold,
+  },
+  orderNoteInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: COLORS.canvas,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 52,
+    marginBottom: SPACING.md,
+  },
+  orderNoteTextInput: {
+    flex: 1,
+    fontSize: 12,
+    color: COLORS.forest,
+    ...FONTS.medium,
+    paddingVertical: 0,
+    textAlignVertical: 'top',
+  },
+  clearOrderNoteBtn: {
+    padding: 2,
+    marginLeft: 6,
+  },
   footer: {
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -747,28 +1089,47 @@ const styles = StyleSheet.create({
     borderTopColor: COLORS.border,
     backgroundColor: COLORS.canvas,
   },
-  saveButton: {
-    width: '100%',
-    minHeight: 50,
+  footerDualRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  saveChangesOnlyBtn: {
+    flex: 1,
+    height: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
+    backgroundColor: COLORS.white,
+    borderWidth: 1.5,
+    borderColor: COLORS.forest,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+  },
+  saveChangesOnlyBtnText: {
+    fontSize: 13,
+    color: COLORS.forest,
+    ...FONTS.bold,
+  },
+  saveAndPrintKotBtn: {
+    flex: 1,
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
     backgroundColor: COLORS.forest,
     borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 10,
     shadowColor: COLORS.forest,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.2,
-    shadowRadius: 5,
+    shadowRadius: 4,
     elevation: 3,
   },
-  saveButtonText: {
-    fontSize: 13.5,
+  saveAndPrintKotBtnText: {
+    fontSize: 13,
     color: COLORS.white,
-    ...FONTS.heavy,
-    textAlign: 'center',
-    flexShrink: 1,
+    ...FONTS.bold,
   },
 });

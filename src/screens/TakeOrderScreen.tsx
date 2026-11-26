@@ -18,17 +18,16 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
-import { MenuItem, Order, OrderInput, OrderType } from '../types';
+import { MenuItem, OrderInput, OrderType } from '../types';
 import defaultMenuSeed from '../data/menu.json';
 import { BrandHeader } from '../components/BrandHeader';
 import { CategoryBar } from '../components/CategoryBar';
 import { MenuItemCard } from '../components/MenuItemCard';
 import { CheckoutModal } from '../components/CheckoutModal';
-import { PaymentModal } from '../components/PaymentModal';
 import { TokenBadge } from '../components/TokenBadge';
 import { KojiConfirmModal, KojiConfirmModalProps } from '../components/KojiConfirmModal';
 import { useCart } from '../context/CartContext';
-import { saveOrder, getNextToken, getMenuItems, updateOrderPayment } from '../services/storage';
+import { saveOrder, getNextToken, getMenuItems } from '../services/storage';
 import { printStationKots } from '../services/printService';
 import { COLORS, FONTS, SPACING } from '../constants/theme';
 
@@ -50,7 +49,6 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
   const [nextToken, setNextToken] = useState<string>('#01');
   const [isCheckoutOpen, setIsCheckoutOpen] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [payingOrder, setPayingOrder] = useState<Order | null>(null);
   const [confirmModal, setConfirmModal] = useState<KojiConfirmModalProps | null>(null);
 
   // Global draft cart context (persisted across tabs & app reloads)
@@ -96,7 +94,7 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
           setMenuItems(items);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     return () => {
       isMounted = false;
@@ -192,7 +190,6 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
     discount?: number;
     discountPercent?: number;
     subtotal?: number;
-    paymentMethod?: 'UPI' | 'Cash';
     orderType?: OrderType;
   }) => {
     if (cartItemsList.length === 0) return;
@@ -203,9 +200,6 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
       const subtotal = details.subtotal || totalAmount;
       const discount = Math.min(subtotal, Math.max(0, rawDiscount));
       const finalTotal = Math.max(0, subtotal - discount);
-
-      const isCash = details.paymentMethod === 'Cash';
-      const isUpi = details.paymentMethod === 'UPI';
 
       const orderPayload: OrderInput = {
         customerName: details.customerName,
@@ -218,19 +212,19 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
         discountPercent: details.discountPercent,
         totalAmount: finalTotal,
         status: 'preparing',
-        paymentMethod: details.paymentMethod,
-        paymentStatus: isCash ? 'Completed' : 'Pending',
-        amountPaid: isCash ? finalTotal : 0,
-        paidAmount: isCash ? finalTotal : 0,
-        balanceDue: isCash ? 0 : finalTotal,
-        isPaid: isCash,
+        paymentMethod: undefined,
+        paymentStatus: 'Unpaid',
+        amountPaid: 0,
+        paidAmount: 0,
+        balanceDue: finalTotal,
+        isPaid: false,
       };
 
       const saved = await saveOrder(orderPayload);
 
       // Trigger automatic station KOT print if enabled
       if (details.autoPrint) {
-        printStationKots(saved).catch(() => {});
+        printStationKots(saved).catch(() => { });
       }
 
       // Reset cart and modal
@@ -243,21 +237,18 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
       // Refresh next token for subsequent order
       await refreshNextToken();
 
-      if (isUpi) {
-        setPayingOrder(saved);
-      } else {
-        setConfirmModal({
-          visible: true,
-          variant: 'forest',
-          badgeLabel: 'Order Saved',
-          title: 'Order Saved! 🎉',
-          message: `Token ${saved.token} has been logged in kitchen (Total: ₹${saved.totalAmount}${isCash ? ' • Paid via Cash' : ''}).`,
-          primaryLabel: 'Take Next Order',
-          cancelLabel: '',
-          onPrimaryPress: () => setConfirmModal(null),
-          onClose: () => setConfirmModal(null),
-        });
-      }
+      setConfirmModal({
+        visible: true,
+        variant: 'forest',
+        badgeLabel: 'Order Placed',
+        title: 'Order Sent to Kitchen',
+        message: `Token ${saved.token} has been logged in kitchen (Total: ₹${saved.totalAmount} • Unpaid).`,
+        highlightText: `Token ${saved.token} • ${saved.items.length} dishes`,
+        primaryLabel: 'Done',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
     } catch (err: any) {
       setConfirmModal({
         visible: true,
@@ -407,21 +398,6 @@ export const TakeOrderScreen: React.FC<TakeOrderScreenProps> = ({
         onClose={() => setIsCheckoutOpen(false)}
         onConfirm={handleConfirmOrder}
         isSubmitting={isSubmitting}
-      />
-
-      {/* Dynamic UPI Payment Modal when UPI is selected at checkout */}
-      <PaymentModal
-        visible={Boolean(payingOrder)}
-        order={payingOrder}
-        onClose={() => setPayingOrder(null)}
-        onPaymentCompleted={async (orderId, method, amount) => {
-          try {
-            const payMethod: 'UPI' | 'Cash' = method === 'Cash' ? 'Cash' : 'UPI';
-            await updateOrderPayment(orderId, payMethod, amount);
-            onOrderSaved?.();
-          } catch {}
-          setPayingOrder(null);
-        }}
       />
 
       {/* Universal Kōji Confirmation / Notice Modal */}
