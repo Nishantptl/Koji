@@ -40,12 +40,12 @@ import {
   MessageSquare,
   Users,
   UserPlus,
-  Copy,
   Info,
+  Mail,
 } from 'lucide-react-native';
 import QRCode from 'react-native-qrcode-svg';
 import * as Haptics from 'expo-haptics';
-import * as Clipboard from 'expo-clipboard';
+import * as Contacts from 'expo-contacts/legacy';
 import { requireOptionalNativeModule } from 'expo';
 import { MenuItem, DateRangeOption, Order, ItemSalesSummary } from '../types';
 import { BrandHeader } from '../components/BrandHeader';
@@ -90,7 +90,11 @@ import {
   syncCustomerContactsToPhone,
   getHolidaySentPhones,
   markHolidaySentPhone,
-  HOLIDAY_ANNOUNCEMENT_MSG,
+  ContactSyncAccount,
+  getContactSyncAccount,
+  setContactSyncAccount,
+  getAvailableContactContainers,
+  importCustomersViaVcf,
 } from '../services/storage';
 import { KojiConfirmModal, KojiConfirmModalProps } from '../components/KojiConfirmModal';
 import { COLORS, FONTS, SPACING } from '../constants/theme';
@@ -304,7 +308,22 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
   // Customer Directory State
   const [customerSearch, setCustomerSearch] = useState('');
   const [isSyncingContacts, setIsSyncingContacts] = useState(false);
+  const [isImportingVcf, setIsImportingVcf] = useState(false);
   const [sentHolidayPhones, setSentHolidayPhones] = useState<string[]>([]);
+  const [syncAccount, setSyncAccount] = useState<ContactSyncAccount | null>(null);
+  const [availableContainers, setAvailableContainers] = useState<Contacts.Container[]>([]);
+  const [isAccountModalVisible, setIsAccountModalVisible] = useState(false);
+
+  const namedGoogleContainers = useMemo(() => {
+    return availableContainers.filter(
+      (c) =>
+        c.name &&
+        c.name.trim().length > 0 &&
+        c.name.toLowerCase() !== 'device contacts' &&
+        c.name.toLowerCase() !== 'default' &&
+        (c.name.includes('@') || c.name.toLowerCase().includes('google'))
+    );
+  }, [availableContainers]);
 
   // Dish Tally State
   const [dishTallySearch, setDishTallySearch] = useState('');
@@ -391,8 +410,10 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
       getAutoPrintPreference(),
       getNotificationChannelPreference(),
       getHolidaySentPhones(todayKey),
+      getContactSyncAccount(),
+      getAvailableContactContainers(false),
     ])
-      .then(([items, allOrders, upiCfg, pWidth, autoPrint, nChannel, sentPhones]) => {
+      .then(([items, allOrders, upiCfg, pWidth, autoPrint, nChannel, sentPhones, savedAccount, containers]) => {
         if (isMounted) {
           setMenuItems(items);
           setOrders(allOrders);
@@ -402,6 +423,12 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
           setAutoPrintKot(autoPrint);
           setNotifyChannel(nChannel);
           setSentHolidayPhones(sentPhones);
+          if (savedAccount) {
+            setSyncAccount(savedAccount);
+          }
+          if (containers && containers.length > 0) {
+            setAvailableContainers(containers);
+          }
         }
       })
       .catch(() => { });
@@ -727,6 +754,40 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
     }
   };
 
+  const handleOpenAccountSelector = async () => {
+    try {
+      const containers = await getAvailableContactContainers(true);
+      setAvailableContainers(containers);
+      setIsAccountModalVisible(true);
+    } catch (err: any) {
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'Contacts Permission',
+        title: 'Permission Needed',
+        message: err?.message || 'Could not access device contact accounts. Please check permissions.',
+        primaryLabel: 'Got It',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
+    }
+  };
+
+  const handleSelectAccount = async (container: Contacts.Container) => {
+    const account: ContactSyncAccount = {
+      containerId: container.id,
+      accountName: container.name || container.id,
+      accountType: container.type,
+    };
+    setSyncAccount(account);
+    await setContactSyncAccount(account);
+    setIsAccountModalVisible(false);
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch { }
+  };
+
   const handleSyncPhoneContacts = async () => {
     if (uniqueCustomers.length === 0) {
       setConfirmModal({
@@ -748,14 +809,20 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
       try {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       } catch { }
-      const result = await syncCustomerContactsToPhone(uniqueCustomers);
+
+      const result = await syncCustomerContactsToPhone(
+        uniqueCustomers,
+        syncAccount?.containerId,
+        syncAccount?.accountName
+      );
+
       setConfirmModal({
         visible: true,
         variant: 'forest',
         badgeLabel: 'Contacts Synced',
         title: 'Contacts Synced! 📇',
-        message: `Synced ${result.addedCount} new customer(s) to Phone Contacts (${result.skippedCount} already saved). Open WhatsApp Business -> New Broadcast -> search "Koji -" to message everyone at once!`,
-        primaryLabel: 'OK',
+        message: `Synced ${result.addedCount} new customer${result.addedCount === 1 ? '' : 's'} directly to Phone Contacts (${result.skippedCount} already saved). Open WhatsApp Business -> New Broadcast -> search "Koji -" to message everyone at once!`,
+        primaryLabel: 'Done',
         cancelLabel: '',
         onPrimaryPress: () => setConfirmModal(null),
         onClose: () => setConfirmModal(null),
@@ -766,7 +833,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
         variant: 'amber',
         badgeLabel: 'Sync Failed',
         title: 'Contacts Sync Error',
-        message: err?.message || 'Could not sync contacts to phone.',
+        message: err?.message || 'Could not sync contacts to phone. You can use "Sync to Gmail (.vcf)" as a guaranteed fallback.',
         primaryLabel: 'Got It',
         cancelLabel: '',
         onPrimaryPress: () => setConfirmModal(null),
@@ -774,6 +841,46 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
       });
     } finally {
       setIsSyncingContacts(false);
+    }
+  };
+
+  const handleImportVcf = async () => {
+    if (uniqueCustomers.length === 0) {
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'Customer Directory',
+        title: 'No Customers Found',
+        message: 'There are no customer contacts with phone numbers in the order history yet.',
+        primaryLabel: 'OK',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
+      return;
+    }
+
+    try {
+      setIsImportingVcf(true);
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch { }
+
+      await importCustomersViaVcf(uniqueCustomers);
+    } catch (err: any) {
+      setConfirmModal({
+        visible: true,
+        variant: 'amber',
+        badgeLabel: 'Import Failed',
+        title: 'Contacts File Error',
+        message: err?.message || 'Unable to generate or open the .vcf contacts file.',
+        primaryLabel: 'Got It',
+        cancelLabel: '',
+        onPrimaryPress: () => setConfirmModal(null),
+        onClose: () => setConfirmModal(null),
+      });
+    } finally {
+      setIsImportingVcf(false);
     }
   };
 
@@ -801,39 +908,6 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
         title: 'Could Not Open WhatsApp',
         message: err?.message || 'Failed to open messaging app for this customer.',
         primaryLabel: 'Got It',
-        cancelLabel: '',
-        onPrimaryPress: () => setConfirmModal(null),
-        onClose: () => setConfirmModal(null),
-      });
-    }
-  };
-
-  const handleCopyHolidayMessage = async () => {
-    try {
-      try {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch { }
-      await Clipboard.setStringAsync(HOLIDAY_ANNOUNCEMENT_MSG);
-      setConfirmModal({
-        visible: true,
-        variant: 'forest',
-        badgeLabel: 'Holiday Broadcast',
-        title: 'Message Copied! 📋',
-        message: 'The official Kōji holiday closure announcement has been copied to your clipboard. Paste it into WhatsApp Broadcast or SMS.',
-        highlightText: HOLIDAY_ANNOUNCEMENT_MSG,
-        primaryLabel: 'Done',
-        cancelLabel: '',
-        onPrimaryPress: () => setConfirmModal(null),
-        onClose: () => setConfirmModal(null),
-      });
-    } catch (err: any) {
-      setConfirmModal({
-        visible: true,
-        variant: 'amber',
-        badgeLabel: 'Copy Failed',
-        title: 'Clipboard Error',
-        message: err?.message || 'Could not copy message to clipboard.',
-        primaryLabel: 'OK',
         cancelLabel: '',
         onPrimaryPress: () => setConfirmModal(null),
         onClose: () => setConfirmModal(null),
@@ -1827,7 +1901,22 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
                     </View>
                   </View>
 
-                  {/* Dual Action Buttons: Sync Contacts & Copy Text */}
+                  {/* Optional Sync Account Chip if named Google accounts exist */}
+                  {namedGoogleContainers.length > 0 && (
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={handleOpenAccountSelector}
+                      style={styles.syncAccountChip}
+                    >
+                      <Mail size={13} color={COLORS.forest} strokeWidth={2.2} />
+                      <Text style={styles.syncAccountChipText} numberOfLines={1}>
+                        Syncing to: {syncAccount?.accountName || namedGoogleContainers[0].name}
+                      </Text>
+                      <Text style={styles.syncAccountChangeText}>Change</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {/* Action Buttons: Exactly Two Equal-Width Buttons */}
                   <View style={styles.customerHeroActionsRow}>
                     <TouchableOpacity
                       activeOpacity={0.85}
@@ -1840,18 +1929,22 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
                     >
                       <UserPlus size={16} color={COLORS.white} strokeWidth={2.2} />
                       <Text style={styles.customerHeroPrimaryBtnText} numberOfLines={1}>
-                        {isSyncingContacts ? 'Syncing...' : 'Sync Contacts'}
+                        {isSyncingContacts ? 'Syncing...' : 'Sync to Phone'}
                       </Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
                       activeOpacity={0.85}
-                      onPress={handleCopyHolidayMessage}
-                      style={styles.customerHeroSecondaryBtn}
+                      onPress={handleImportVcf}
+                      disabled={isImportingVcf || uniqueCustomers.length === 0}
+                      style={[
+                        styles.customerHeroSecondaryBtn,
+                        (isImportingVcf || uniqueCustomers.length === 0) && styles.btnDisabled,
+                      ]}
                     >
-                      <Copy size={16} color={COLORS.forest} strokeWidth={2.2} />
+                      <FileText size={16} color={COLORS.forest} strokeWidth={2.2} />
                       <Text style={styles.customerHeroSecondaryBtnText} numberOfLines={1}>
-                        Copy Text
+                        {isImportingVcf ? 'Opening...' : 'Sync to Gmail (.vcf)'}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -2755,6 +2848,144 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onMenuChanged }) => {
         order={selectedOrderForPrint}
         onClose={() => setSelectedOrderForPrint(null)}
       />
+
+      {/* Select Google Sync Account Modal */}
+      <Modal
+        visible={isAccountModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsAccountModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.accountModalCard}>
+            {/* Header */}
+            <View style={styles.accountModalHeader}>
+              <View style={styles.accountModalHeaderLeft}>
+                <View style={styles.cardIconBadge}>
+                  <Mail size={18} color={COLORS.forest} strokeWidth={2.2} />
+                </View>
+                <View style={styles.accountModalTitleStack}>
+                  <Text style={styles.accountModalTitle}>Select Sync Account</Text>
+                  <Text style={styles.accountModalSubtitle}>
+                    Choose Google account to sync Kōji customer contacts into
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => setIsAccountModalVisible(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.accountModalCloseBtn}
+              >
+                <X size={18} color={COLORS.slate} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Containers List or Fallback Choice Cards */}
+            <ScrollView style={styles.accountListScroll} showsVerticalScrollIndicator={false}>
+              {namedGoogleContainers.length > 0 ? (
+                namedGoogleContainers.map((container) => {
+                  const isSelected = syncAccount?.containerId === container.id;
+                  const isGoogle =
+                    container.name?.toLowerCase().includes('@gmail.com') ||
+                    container.name?.toLowerCase().includes('google');
+
+                  return (
+                    <TouchableOpacity
+                      key={container.id}
+                      activeOpacity={0.75}
+                      onPress={() => handleSelectAccount(container)}
+                      style={[
+                        styles.accountRowItem,
+                        isSelected && styles.accountRowItemSelected,
+                      ]}
+                    >
+                      <View style={styles.accountRowIconBox}>
+                        {isGoogle ? (
+                          <Mail size={18} color={COLORS.forest} strokeWidth={2.2} />
+                        ) : (
+                          <Smartphone size={18} color={COLORS.slate} strokeWidth={2.2} />
+                        )}
+                      </View>
+
+                      <View style={styles.accountRowInfo}>
+                        <Text style={styles.accountRowName} numberOfLines={1}>
+                          {container.name || 'Device Contacts'}
+                        </Text>
+                        <Text style={styles.accountRowType}>
+                          {isGoogle ? 'Google Account' : container.type ? `${container.type} Account` : 'Local Device'}
+                        </Text>
+                      </View>
+
+                      {isSelected && (
+                        <View style={styles.accountRowCheckBadge}>
+                          <Check size={14} color={COLORS.forest} strokeWidth={2.8} />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              ) : (
+                <View style={styles.accountChoicesContainer}>
+                  <Text style={styles.accountChoicesSubtitle}>
+                    Android does not expose account names to third-party apps. Choose how you would like to sync your customers:
+                  </Text>
+
+                  {/* Option 1: Save to Specific Gmail Account */}
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setIsAccountModalVisible(false);
+                      handleImportVcf();
+                    }}
+                    style={styles.accountChoiceCardPrimary}
+                  >
+                    <View style={styles.accountChoiceIconCirclePrimary}>
+                      <Mail size={20} color={COLORS.forest} strokeWidth={2.2} />
+                    </View>
+                    <View style={styles.accountChoiceTextCol}>
+                      <Text style={styles.accountChoiceTitle}>Save to Specific Gmail Account</Text>
+                      <Text style={styles.accountChoiceSubtitle}>
+                        Exports a .vcf contacts file and opens Android&apos;s Contacts picker to choose your preferred Gmail account.
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Option 2: Save Directly to Phone Storage */}
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setIsAccountModalVisible(false);
+                      handleSyncPhoneContacts();
+                    }}
+                    style={styles.accountChoiceCard}
+                  >
+                    <View style={styles.accountChoiceIconCircle}>
+                      <Smartphone size={20} color={COLORS.slate} strokeWidth={2.2} />
+                    </View>
+                    <View style={styles.accountChoiceTextCol}>
+                      <Text style={styles.accountChoiceTitle}>Save Directly to Phone Storage</Text>
+                      <Text style={styles.accountChoiceSubtitle}>
+                        Fast in-app deduplicated sync directly into this device&apos;s default contacts.
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </ScrollView>
+
+            {/* Footer */}
+            <View style={styles.accountModalFooter}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => setIsAccountModalVisible(false)}
+                style={styles.accountModalCancelBtn}
+              >
+                <Text style={styles.accountModalCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Universal Kōji Confirmation / Notice Modal */}
       {confirmModal && (
@@ -4269,44 +4500,250 @@ const styles = StyleSheet.create({
     ...FONTS.regular,
     marginTop: 2,
   },
+  syncAccountChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1.2,
+    borderColor: '#86EFAC',
+    borderRadius: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  syncAccountChipText: {
+    fontSize: 12.5,
+    ...FONTS.semibold,
+    color: COLORS.forest,
+    flex: 1,
+  },
+  syncAccountChangeText: {
+    fontSize: 11.5,
+    ...FONTS.bold,
+    color: '#15803D',
+    textDecorationLine: 'underline',
+  },
   customerHeroActionsRow: {
     flexDirection: 'row',
     gap: 10,
     alignItems: 'center',
+    width: '100%',
   },
   customerHeroPrimaryBtn: {
     flex: 1,
-    height: 46,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.forest,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     borderRadius: 12,
-    gap: 8,
+    gap: 6,
   },
   customerHeroPrimaryBtnText: {
-    fontSize: 13,
+    fontSize: 12.5,
     color: COLORS.white,
     ...FONTS.bold,
   },
   customerHeroSecondaryBtn: {
     flex: 1,
-    height: 46,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.sage,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: 12,
+    borderWidth: 1.2,
+    borderColor: COLORS.forest,
+    paddingHorizontal: 8,
     borderRadius: 12,
-    gap: 8,
+    gap: 6,
   },
   customerHeroSecondaryBtnText: {
-    fontSize: 13,
+    fontSize: 12.5,
     color: COLORS.forest,
     ...FONTS.bold,
+  },
+  // Account Selection Modal Styles
+  accountModalCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    width: '94%',
+    maxWidth: 440,
+    maxHeight: '80%',
+    padding: SPACING.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  accountModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  accountModalHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 10,
+  },
+  accountModalTitleStack: {
+    flex: 1,
+  },
+  accountModalTitle: {
+    fontSize: 16,
+    ...FONTS.heavy,
+    color: COLORS.forest,
+  },
+  accountModalSubtitle: {
+    fontSize: 12,
+    ...FONTS.regular,
+    color: COLORS.slate,
+    marginTop: 2,
+  },
+  accountModalCloseBtn: {
+    padding: 4,
+  },
+  accountListScroll: {
+    marginVertical: 12,
+    maxHeight: 280,
+  },
+  accountRowItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1.2,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.sage,
+    marginBottom: 8,
+  },
+  accountRowItemSelected: {
+    borderColor: COLORS.forest,
+    backgroundColor: '#F0FDF4',
+  },
+  accountRowIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  accountRowInfo: {
+    flex: 1,
+  },
+  accountRowName: {
+    fontSize: 13.5,
+    ...FONTS.bold,
+    color: COLORS.forest,
+  },
+  accountRowType: {
+    fontSize: 11,
+    ...FONTS.medium,
+    color: COLORS.slate,
+    marginTop: 2,
+  },
+  accountRowCheckBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 6,
+  },
+  accountChoicesContainer: {
+    paddingVertical: 10,
+    gap: 12,
+  },
+  accountChoicesSubtitle: {
+    fontSize: 12,
+    ...FONTS.regular,
+    color: COLORS.slate,
+    lineHeight: 18,
+    marginBottom: 2,
+  },
+  accountChoiceCardPrimary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    borderRadius: 12,
+    padding: 12,
+    gap: 12,
+  },
+  accountChoiceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surfaceMuted,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    padding: 12,
+    gap: 12,
+  },
+  accountChoiceIconCirclePrimary: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accountChoiceIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accountChoiceTextCol: {
+    flex: 1,
+  },
+  accountChoiceTitle: {
+    fontSize: 13.5,
+    ...FONTS.bold,
+    color: COLORS.forest,
+    marginBottom: 2,
+  },
+  accountChoiceSubtitle: {
+    fontSize: 11.5,
+    ...FONTS.regular,
+    color: COLORS.slate,
+    lineHeight: 16,
+  },
+  accountModalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  accountModalCancelBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1.2,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.white,
+  },
+  accountModalCancelBtnText: {
+    fontSize: 13,
+    ...FONTS.semibold,
+    color: COLORS.forest,
   },
   customerSearchBar: {
     flexDirection: 'row',

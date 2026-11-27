@@ -20,6 +20,10 @@ import {
   UpiConfig,
   PaymentRecord,
   ItemSalesSummary,
+  SushiWaitEstimate,
+  SushiWaitOptions,
+  KitchenWaitEstimate,
+  KitchenWaitOptions,
 } from '../types';
 import defaultMenuSeed from '../data/menu.json';
 
@@ -1143,6 +1147,7 @@ export interface CancelOrderItemOptions {
   orderId: string;
   itemIndex: number;
   decrementOnly?: boolean;
+  cancelQuantity?: number;
   refundMethod?: 'Cash' | 'UPI';
   cancelReason?: string;
 }
@@ -1153,7 +1158,7 @@ export interface CancelOrderItemOptions {
 export const cancelOrderItemWithRefund = async (
   options: CancelOrderItemOptions
 ): Promise<Order[]> => {
-  const { orderId, itemIndex, decrementOnly, refundMethod = 'Cash', cancelReason } = options;
+  const { orderId, itemIndex, decrementOnly, cancelQuantity, refundMethod = 'Cash', cancelReason } = options;
   const existingOrders = await getOrders();
   const nowIso = new Date().toISOString();
 
@@ -1163,19 +1168,26 @@ export const cancelOrderItemWithRefund = async (
       const targetItem = itemsCopy[itemIndex];
       if (!targetItem) return order;
 
-      if (decrementOnly && targetItem.quantity > 1) {
-        const nextQty = targetItem.quantity - 1;
-        const nextServed = Math.min(nextQty, targetItem.servedQuantity || 0);
+      const cancellableQty = Math.max(0, targetItem.quantity - (targetItem.servedQuantity || 0));
+      const qtyToCancel = Math.min(
+        cancelQuantity !== undefined ? cancelQuantity : (decrementOnly ? 1 : cancellableQty),
+        cancellableQty
+      );
+      if (qtyToCancel <= 0) return order;
+
+      const nextQty = targetItem.quantity - qtyToCancel;
+      if (nextQty <= 0) {
         itemsCopy[itemIndex] = {
           ...targetItem,
-          quantity: nextQty,
-          servedQuantity: nextServed,
+          status: 'cancelled' as ItemStatus,
+          quantity: 0,
+          servedQuantity: 0,
         };
       } else {
         itemsCopy[itemIndex] = {
           ...targetItem,
-          status: 'cancelled' as ItemStatus,
-          servedQuantity: 0,
+          quantity: nextQty,
+          servedQuantity: Math.min(nextQty, targetItem.servedQuantity || 0),
         };
       }
 
@@ -1217,7 +1229,7 @@ export const cancelOrderItemWithRefund = async (
 
       const totalPaid = newUpi + newCash;
       const balanceDue = Math.max(0, newGrandTotal - totalPaid);
-      const nonCancelled = itemsCopy.filter((i) => i.status !== 'cancelled');
+      const nonCancelled = itemsCopy.filter((i) => i.status !== 'cancelled' && i.quantity > 0);
 
       let paymentStatus: PaymentStatus = 'Unpaid';
       if (nonCancelled.length === 0 && totalPaid === 0) {
@@ -1636,6 +1648,10 @@ export const getDailyMetrics = async (): Promise<DailyMetrics> => {
   );
   const totalUpiRevenue = validTodayOrders.reduce((sum, o) => sum + getOrderUpiPaid(o), 0);
   const totalCashRevenue = validTodayOrders.reduce((sum, o) => sum + getOrderCashPaid(o), 0);
+  const totalRefundRevenue = todayOrders.reduce(
+    (sum, o) => sum + (o.refundedCash || 0) + (o.refundedUpi || 0),
+    0
+  );
   const totalRevenue = totalUpiRevenue + totalCashRevenue;
   const activeOrders = validTodayOrders.filter((o) => o.status === 'preparing').length;
   const completedOrders = validTodayOrders.filter((o) => o.status === 'completed').length;
@@ -1645,6 +1661,7 @@ export const getDailyMetrics = async (): Promise<DailyMetrics> => {
     totalRevenue,
     totalUpiRevenue,
     totalCashRevenue,
+    totalRefundRevenue,
     activeOrders,
     completedOrders,
   };
@@ -1776,7 +1793,9 @@ export const getItemsSoldSummary = (orders: Order[]): ItemSalesSummary[] => {
 
     for (const item of order.items) {
       if (item.status === 'cancelled') continue;
-      const key = item.id || item.name;
+      const normName = item.name ? item.name.trim().toLowerCase() : '';
+      if (!normName) continue;
+      const key = normName;
       const existing = itemMap.get(key);
       const qty = typeof item.quantity === 'number' ? item.quantity : 1;
       const price = typeof item.price === 'number' ? item.price : 0;
@@ -1786,9 +1805,10 @@ export const getItemsSoldSummary = (orders: Order[]): ItemSalesSummary[] => {
         existing.quantitySold += qty;
         existing.itemRevenue += rev;
       } else {
+        const displayName = item.name ? item.name.trim() : 'Dish';
         itemMap.set(key, {
-          id: item.id || key,
-          name: item.name || 'Dish',
+          id: key,
+          name: displayName,
           category: item.category || 'Other',
           isVeg: Boolean(item.isVeg),
           price,
@@ -2403,37 +2423,82 @@ export const extractUniqueCustomers = (ordersList: Order[]): CustomerRecord[] =>
   );
 };
 
-export const exportCustomerContactsVcf = async (
+export const CONTACT_SYNC_ACCOUNT_KEY = '@koji_contact_sync_account';
+
+export interface ContactSyncAccount {
+  containerId: string;
+  accountName: string;
+  accountType?: string;
+}
+
+export const getContactSyncAccount = async (): Promise<ContactSyncAccount | null> => {
+  try {
+    const raw = await AsyncStorage.getItem(CONTACT_SYNC_ACCOUNT_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+};
+
+export const setContactSyncAccount = async (
+  account: ContactSyncAccount | null
+): Promise<void> => {
+  try {
+    if (!account) {
+      await AsyncStorage.removeItem(CONTACT_SYNC_ACCOUNT_KEY);
+    } else {
+      await AsyncStorage.setItem(CONTACT_SYNC_ACCOUNT_KEY, JSON.stringify(account));
+    }
+  } catch {}
+};
+
+export const getAvailableContactContainers = async (requestIfMissing = true): Promise<Contacts.Container[]> => {
+  const perm = await Contacts.getPermissionsAsync();
+  if (perm.status !== 'granted') {
+    if (!requestIfMissing) return [];
+    const { status } = await Contacts.requestPermissionsAsync();
+    if (status !== 'granted') {
+      throw new Error('Contacts permission denied. Please grant Contacts permission in device settings.');
+    }
+  }
+  try {
+    const containers = await Contacts.getContainersAsync({});
+    return containers || [];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Generates a vCard 3.0 (.vcf) file and opens it via native system sharing
+ * allowing the user to select their desired Google Account to import contacts directly.
+ */
+export const importCustomersViaVcf = async (
   customers: CustomerRecord[]
 ): Promise<void> => {
   if (customers.length === 0) {
-    throw new Error('No customers found in order history to export.');
+    throw new Error('No customers found in order history to import.');
   }
 
   const vcardEntries = customers.map((c) => {
-    const formattedPhone = c.phone.startsWith('+91')
-      ? c.phone
-      : `+91${c.phone}`;
+    const cleanPhone = c.phone.replace(/\D/g, '').slice(-10);
+    const formattedPhone = `+91${cleanPhone}`;
     const displayName =
       c.name && c.name !== 'Guest'
-        ? `Koji - ${c.name}`
-        : `Koji - Customer ${c.phone.slice(-4)}`;
+        ? `Koji - ${c.name.trim()}`
+        : `Koji - Customer ${cleanPhone.slice(-4)}`;
     return [
       'BEGIN:VCARD',
       'VERSION:3.0',
       `FN:${displayName}`,
       `TEL;TYPE=CELL:${formattedPhone}`,
+      'NOTE:Koji POS Customer',
       'END:VCARD',
     ].join('\n');
   });
 
   const vcfContent = vcardEntries.join('\n\n') + '\n';
-  const now = new Date();
-  const dateStamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-  const fileName = `koji_customers_${dateStamp}.vcf`;
-
   const cacheDir = FileSystem.cacheDirectory || '';
-  const fileUri = `${cacheDir}${fileName}`;
+  const fileUri = `${cacheDir}koji-customers.vcf`;
 
   await FileSystem.writeAsStringAsync(fileUri, vcfContent, {
     encoding: FileSystem.EncodingType.UTF8,
@@ -2445,23 +2510,28 @@ export const exportCustomerContactsVcf = async (
   }
 
   await Sharing.shareAsync(fileUri, {
-    mimeType: 'text/vcard',
-    dialogTitle: 'Export Kōji Customer Contacts (.vcf)',
+    mimeType: 'text/x-vcard',
+    dialogTitle: 'Import Kōji Customers to Google Account',
     UTI: 'public.vcard',
   });
 };
+
+export const exportCustomerContactsVcf = importCustomersViaVcf;
 
 export interface ContactSyncResult {
   addedCount: number;
   skippedCount: number;
   totalUnique: number;
+  accountName?: string;
 }
 
 export const syncCustomerContactsToPhone = async (
-  customers: CustomerRecord[]
+  customers: CustomerRecord[],
+  targetContainerId?: string,
+  targetAccountName?: string
 ): Promise<ContactSyncResult> => {
   if (customers.length === 0) {
-    return { addedCount: 0, skippedCount: 0, totalUnique: 0 };
+    return { addedCount: 0, skippedCount: 0, totalUnique: 0, accountName: targetAccountName };
   }
 
   const { status } = await Contacts.requestPermissionsAsync();
@@ -2469,9 +2539,23 @@ export const syncCustomerContactsToPhone = async (
     throw new Error('Contacts permission denied. Please grant Contacts permission in device settings.');
   }
 
-  const { data: existingContacts } = await Contacts.getContactsAsync({
-    fields: [Contacts.Fields.PhoneNumbers],
-  });
+  // Fetch existing contacts from target container (or all contacts if container query not supported)
+  let existingContacts: Contacts.Contact[] = [];
+  try {
+    const query: Contacts.ContactQuery = {
+      fields: [Contacts.Fields.PhoneNumbers],
+    };
+    if (targetContainerId) {
+      query.containerId = targetContainerId;
+    }
+    const resp = await Contacts.getContactsAsync(query);
+    existingContacts = resp.data || [];
+  } catch {
+    const resp = await Contacts.getContactsAsync({
+      fields: [Contacts.Fields.PhoneNumbers],
+    });
+    existingContacts = resp.data || [];
+  }
 
   const existingNumbersSet = new Set<string>();
   if (existingContacts && existingContacts.length > 0) {
@@ -2504,17 +2588,24 @@ export const syncCustomerContactsToPhone = async (
           ? cust.name.trim()
           : `Customer ${cleanPhone.slice(-4)}`;
 
-      await Contacts.addContactAsync({
+      const contactPayload: Contacts.Contact = {
         contactType: Contacts.ContactTypes.Person,
         firstName: `Koji - ${displayName}`,
         name: `Koji - ${displayName}`,
+        note: 'Koji POS Customer',
         phoneNumbers: [
           {
             label: 'mobile',
             number: `+91${cleanPhone}`,
           },
         ],
-      });
+      };
+
+      if (targetContainerId) {
+        await Contacts.addContactAsync(contactPayload, targetContainerId);
+      } else {
+        await Contacts.addContactAsync(contactPayload);
+      }
       existingNumbersSet.add(cleanPhone);
       addedCount++;
     }
@@ -2528,6 +2619,7 @@ export const syncCustomerContactsToPhone = async (
     addedCount,
     skippedCount,
     totalUnique: customers.length,
+    accountName: targetAccountName,
   };
 };
 
@@ -2558,6 +2650,348 @@ export const markHolidaySentPhone = async (
   } catch {
     return [];
   }
+};
+
+// ==========================================
+// SUSHI QUEUE WAIT-TIME ESTIMATOR
+// ==========================================
+
+export const SUSHI_WAIT_OFFSET_KEY = '@koji_sushi_wait_offset';
+
+/**
+ * Accurately determines if an item belongs to the "Sushi" category.
+ * Explicitly excludes "Wok & Crisp", "Rice & Noodles", "Mocktail", beverages, and packaged goods.
+ */
+export const isSushiItem = (
+  item: { category?: string; id?: string; name?: string },
+  menuItems?: MenuItem[]
+): boolean => {
+  if (item.category) {
+    const cat = item.category.trim().toLowerCase();
+    if (cat === 'sushi') return true;
+    if (
+      cat === 'wok & crisp' ||
+      cat === 'rice & noodles' ||
+      cat === 'mocktail' ||
+      cat === 'beverage' ||
+      cat === 'beverages' ||
+      cat.includes('wok') ||
+      cat.includes('noodle') ||
+      cat.includes('rice') ||
+      cat.includes('mocktail') ||
+      cat.includes('drink')
+    ) {
+      return false;
+    }
+  }
+
+  // Fallback: match by ID or Name against complete menu list if available
+  if (menuItems && menuItems.length > 0) {
+    const found = menuItems.find(
+      (m) =>
+        (item.id && m.id === item.id) ||
+        (item.name && m.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+    );
+    if (found && found.category) {
+      const fCat = found.category.trim().toLowerCase();
+      if (fCat === 'sushi') return true;
+      if (
+        fCat === 'wok & crisp' ||
+        fCat === 'rice & noodles' ||
+        fCat === 'mocktail' ||
+        fCat.includes('wok') ||
+        fCat.includes('noodle') ||
+        fCat.includes('rice') ||
+        fCat.includes('mocktail')
+      ) {
+        return false;
+      }
+    }
+  }
+
+  // Fallback name/ID pattern checks
+  if (item.id && item.id.toLowerCase().startsWith('sushi')) return true;
+  if (
+    item.name &&
+    (item.name.toLowerCase().includes('sushi') ||
+      item.name.toLowerCase().includes('roll') ||
+      item.name.toLowerCase().includes('nigiri') ||
+      item.name.toLowerCase().includes('maki'))
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Rounds raw minutes into customer-friendly 5-minute windows and urgency levels.
+ * e.g. 0m -> "No wait • Immediate", 3.5m -> "~5–10 mins", 17.5m -> "~20–25 mins".
+ */
+export const formatWaitWindow = (
+  minutes: number
+): {
+  formattedRange: string;
+  compactRange: string;
+  min: number;
+  max: number;
+  urgencyLevel: 'low' | 'medium' | 'high';
+} => {
+  if (minutes <= 0) {
+    return {
+      formattedRange: 'No wait • Immediate',
+      compactRange: 'Immediate',
+      min: 0,
+      max: 5,
+      urgencyLevel: 'low',
+    };
+  }
+
+  const ceil5 = Math.ceil(minutes / 5) * 5;
+  const min = ceil5;
+  const max = ceil5 + 5;
+  const formattedRange = `~${min}–${max} mins`;
+  const compactRange = `${min}–${max}m`;
+
+  let urgencyLevel: 'low' | 'medium' | 'high' = 'low';
+  if (ceil5 <= 10) {
+    urgencyLevel = 'low';
+  } else if (ceil5 <= 25) {
+    urgencyLevel = 'medium';
+  } else {
+    urgencyLevel = 'high';
+  }
+
+  return { formattedRange, compactRange, min, max, urgencyLevel };
+};
+
+export const getSushiWaitOffset = async (): Promise<number> => {
+  try {
+    const val = await AsyncStorage.getItem(SUSHI_WAIT_OFFSET_KEY);
+    if (val !== null) {
+      const parsed = parseInt(val, 10);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+  } catch {}
+  return 0;
+};
+
+export const setSushiWaitOffset = async (offset: number): Promise<void> => {
+  try {
+    await AsyncStorage.setItem(SUSHI_WAIT_OFFSET_KEY, offset.toString());
+  } catch {}
+};
+
+/**
+ * Calculates live estimated wait time based strictly on unserved sushi items across active orders.
+ * Each unserved sushi roll accounts for 3.5 minutes of preparation time.
+ * "Wok & Crisp", "Rice & Noodles", and "Mocktail" dishes contribute 0 minutes.
+ */
+export const calculateSushiWaitEstimate = async (
+  options: SushiWaitOptions = {}
+): Promise<SushiWaitEstimate> => {
+  const {
+    manualOffsetMins = 0,
+    additionalSushiQty = 0,
+    ordersOverride,
+    menuItemsOverride,
+  } = options;
+
+  const orders = ordersOverride || (await getOrders());
+  const menuItems = menuItemsOverride || (await getMenuItems());
+
+  const activeOrders = orders.filter((o) => {
+    if ((o as any).status === 'cancelled' || o.status === 'Cancelled' || o.status === 'completed') {
+      return false;
+    }
+    return true;
+  });
+
+  let pendingSushiCount = 0;
+  for (const order of activeOrders) {
+    if (!Array.isArray(order.items)) continue;
+    for (const item of order.items) {
+      if (item.status === 'cancelled' || item.status === 'completed') continue;
+      if (!isSushiItem(item, menuItems)) continue;
+
+      const served =
+        typeof item.servedQuantity === 'number'
+          ? item.servedQuantity
+          : ((item as any).servedCount || 0);
+      const pending = Math.max(0, (item.quantity || 0) - served);
+      pendingSushiCount += pending;
+    }
+  }
+
+  const effectiveCount = pendingSushiCount + Math.max(0, additionalSushiQty);
+  const rawMinutes = effectiveCount * 3.5;
+  const totalMinutes = Math.max(0, rawMinutes + manualOffsetMins);
+
+  const windowData = formatWaitWindow(totalMinutes);
+
+  return {
+    pendingSushiCount,
+    rawMinutes,
+    manualOffsetMins,
+    totalMinutes,
+    minMinutes: windowData.min,
+    maxMinutes: windowData.max,
+    formattedRange: windowData.formattedRange,
+    compactRange: windowData.compactRange,
+    urgencyLevel: windowData.urgencyLevel,
+  };
+};
+
+export const KITCHEN_WAIT_OFFSET_KEY = '@koji_kitchen_wait_offset';
+
+/**
+ * Accurately determines if an item belongs to the "Kitchen" categories ("Wok & Crisp" or "Rice & Noodles").
+ * Explicitly excludes "Sushi", "Mocktail", beverages, and packaged goods.
+ */
+export const isKitchenItem = (
+  item: { category?: string; id?: string; name?: string },
+  menuItems?: MenuItem[]
+): boolean => {
+  if (item.category) {
+    const cat = item.category.trim().toLowerCase();
+    if (cat === 'wok & crisp' || cat === 'rice & noodles') return true;
+    if (
+      cat === 'sushi' ||
+      cat === 'mocktail' ||
+      cat === 'beverage' ||
+      cat === 'beverages' ||
+      cat.includes('sushi') ||
+      cat.includes('roll') ||
+      cat.includes('mocktail') ||
+      cat.includes('drink')
+    ) {
+      return false;
+    }
+  }
+
+  // Fallback: match by ID or Name against complete menu list if available
+  if (menuItems && menuItems.length > 0) {
+    const found = menuItems.find(
+      (m) =>
+        (item.id && m.id === item.id) ||
+        (item.name && m.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+    );
+    if (found && found.category) {
+      const fCat = found.category.trim().toLowerCase();
+      if (fCat === 'wok & crisp' || fCat === 'rice & noodles') return true;
+      if (
+        fCat === 'sushi' ||
+        fCat === 'mocktail' ||
+        fCat.includes('sushi') ||
+        fCat.includes('roll') ||
+        fCat.includes('mocktail')
+      ) {
+        return false;
+      }
+    }
+  }
+
+  // Fallback name/ID pattern checks
+  if (
+    item.id &&
+    (item.id.toLowerCase().startsWith('wok') ||
+      item.id.toLowerCase().startsWith('rice') ||
+      item.id.toLowerCase().startsWith('noodle'))
+  ) {
+    return true;
+  }
+  if (
+    item.name &&
+    (item.name.toLowerCase().includes('wok') ||
+      item.name.toLowerCase().includes('noodle') ||
+      item.name.toLowerCase().includes('rice') ||
+      item.name.toLowerCase().includes('pad thai') ||
+      item.name.toLowerCase().includes('ramen') ||
+      item.name.toLowerCase().includes('crispy corn') ||
+      item.name.toLowerCase().includes('fried chicken') ||
+      item.name.toLowerCase().includes('lotus stem'))
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
+export const getKitchenWaitOffset = async (): Promise<number> => {
+  try {
+    const val = await AsyncStorage.getItem(KITCHEN_WAIT_OFFSET_KEY);
+    if (val !== null) {
+      const parsed = parseInt(val, 10);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+  } catch {}
+  return 0;
+};
+
+export const setKitchenWaitOffset = async (offset: number): Promise<void> => {
+  try {
+    await AsyncStorage.setItem(KITCHEN_WAIT_OFFSET_KEY, offset.toString());
+  } catch {}
+};
+
+/**
+ * Calculates live estimated wait time based strictly on unserved kitchen items ("Wok & Crisp" and "Rice & Noodles") across active orders.
+ * Each unserved kitchen dish accounts for 3.5 minutes of preparation time.
+ * "Sushi", "Mocktail", beverages, and packaged goods contribute 0 minutes.
+ */
+export const calculateKitchenWaitEstimate = async (
+  options: KitchenWaitOptions = {}
+): Promise<KitchenWaitEstimate> => {
+  const {
+    manualOffsetMins = 0,
+    additionalKitchenQty = 0,
+    ordersOverride,
+    menuItemsOverride,
+  } = options;
+
+  const orders = ordersOverride || (await getOrders());
+  const menuItems = menuItemsOverride || (await getMenuItems());
+
+  const activeOrders = orders.filter((o) => {
+    if ((o as any).status === 'cancelled' || o.status === 'Cancelled' || o.status === 'completed') {
+      return false;
+    }
+    return true;
+  });
+
+  let pendingKitchenCount = 0;
+  for (const order of activeOrders) {
+    if (!Array.isArray(order.items)) continue;
+    for (const item of order.items) {
+      if (item.status === 'cancelled' || item.status === 'completed') continue;
+      if (!isKitchenItem(item, menuItems)) continue;
+
+      const served =
+        typeof item.servedQuantity === 'number'
+          ? item.servedQuantity
+          : ((item as any).servedCount || 0);
+      const pending = Math.max(0, (item.quantity || 0) - served);
+      pendingKitchenCount += pending;
+    }
+  }
+
+  const effectiveCount = pendingKitchenCount + Math.max(0, additionalKitchenQty);
+  const rawMinutes = effectiveCount * 3.5;
+  const totalMinutes = Math.max(0, rawMinutes + manualOffsetMins);
+
+  const windowData = formatWaitWindow(totalMinutes);
+
+  return {
+    pendingKitchenCount,
+    rawMinutes,
+    manualOffsetMins,
+    totalMinutes,
+    minMinutes: windowData.min,
+    maxMinutes: windowData.max,
+    formattedRange: windowData.formattedRange,
+    compactRange: windowData.compactRange,
+    urgencyLevel: windowData.urgencyLevel,
+  };
 };
 
 

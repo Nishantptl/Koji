@@ -394,6 +394,7 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
               : isItemDone
               ? cartItem.quantity
               : 0;
+          const cancellableQty = Math.max(0, cartItem.quantity - (cartItem.servedQuantity || 0));
 
           const isAddonItem = Boolean(cartItem.isAddon || cartItem.addedAt);
           const prevItem = idx > 0 ? order.items[idx - 1] : null;
@@ -481,8 +482,8 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
                           </Text>
                         </TouchableOpacity>
 
-                        {/* Cancel Pill: Soft Red-Tinted [ ✕ Cancel ] */}
-                        {!isItemDone && (
+                        {/* Cancel Pill: Soft Red-Tinted [ ✕ Cancel ] (Capped to unserved units) */}
+                        {!isItemCancelled && cancellableQty > 0 && (
                           <TouchableOpacity
                             activeOpacity={0.75}
                             onPress={() => onCancelItem?.(order.id, idx)}
@@ -826,21 +827,21 @@ const styles = StyleSheet.create({
   },
   customerCombinedText: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 14.5,
   },
   customerText: {
-    fontSize: 12,
+    fontSize: 14.5,
     color: COLORS.forest,
-    ...FONTS.bold,
+    ...FONTS.heavy,
   },
   customerBullet: {
-    fontSize: 12,
+    fontSize: 14,
     color: COLORS.slate,
   },
   customerPhoneText: {
-    fontSize: 12,
-    color: COLORS.slate,
-    ...FONTS.medium,
+    fontSize: 14,
+    color: COLORS.forest,
+    ...FONTS.bold,
   },
   notifyOrderPill: {
     flexShrink: 0,

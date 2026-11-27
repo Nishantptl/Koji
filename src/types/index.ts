@@ -84,6 +84,7 @@ export interface DailyMetrics {
   totalRevenue: number;
   totalUpiRevenue?: number;
   totalCashRevenue?: number;
+  totalRefundRevenue?: number;
   activeOrders: number;
   completedOrders: number;
 }
@@ -104,3 +105,41 @@ export interface ItemSalesSummary {
 }
 
 export type DateRangeOption = 'today' | '7days' | 'custom' | 'all' | '30days';
+
+export interface SushiWaitEstimate {
+  pendingSushiCount: number;
+  rawMinutes: number;
+  manualOffsetMins: number;
+  totalMinutes: number;
+  minMinutes: number;
+  maxMinutes: number;
+  formattedRange: string;
+  compactRange: string;
+  urgencyLevel: 'low' | 'medium' | 'high';
+}
+
+export interface SushiWaitOptions {
+  manualOffsetMins?: number;
+  additionalSushiQty?: number;
+  ordersOverride?: Order[];
+  menuItemsOverride?: MenuItem[];
+}
+
+export interface KitchenWaitEstimate {
+  pendingKitchenCount: number;
+  rawMinutes: number;
+  manualOffsetMins: number;
+  totalMinutes: number;
+  minMinutes: number;
+  maxMinutes: number;
+  formattedRange: string;
+  compactRange: string;
+  urgencyLevel: 'low' | 'medium' | 'high';
+}
+
+export interface KitchenWaitOptions {
+  manualOffsetMins?: number;
+  additionalKitchenQty?: number;
+  ordersOverride?: Order[];
+  menuItemsOverride?: MenuItem[];
+}

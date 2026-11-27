@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Modal,
   View,
@@ -10,9 +10,6 @@ import {
 import {
   RotateCcw,
   Banknote,
-  Smartphone,
-  Printer,
-  Check,
   X,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -25,7 +22,7 @@ export interface RefundModalProps {
   refundAmount: number;
   reason?: string;
   isFullOrderCancellation?: boolean;
-  onConfirm: (refundMethod: 'Cash' | 'UPI', shouldPrintKot: boolean) => void;
+  onConfirm: (refundMethod: 'Cash') => void;
   onClose: () => void;
 }
 
@@ -38,24 +35,15 @@ export const RefundModal: React.FC<RefundModalProps> = ({
   onConfirm,
   onClose,
 }) => {
-  const [shouldPrintKot, setShouldPrintKot] = useState<boolean>(true);
-
   if (!visible || !order) return null;
 
   const cleanToken = order.token ? order.token.replace(/^#+/, '') : '';
 
-  const handleSelectRefund = (method: 'Cash' | 'UPI') => {
+  const handleConfirmCashRefund = () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {}
-    onConfirm(method, shouldPrintKot);
-  };
-
-  const togglePrintKot = () => {
-    try {
-      Haptics.selectionAsync();
-    } catch {}
-    setShouldPrintKot((prev) => !prev);
+    onConfirm('Cash');
   };
 
   return (
@@ -121,66 +109,26 @@ export const RefundModal: React.FC<RefundModalProps> = ({
                 </Text>
               </View>
 
-              {/* Action Buttons: 1-Tap Cash vs UPI */}
-              <Text style={styles.selectLabel}>CHOOSE REFUND METHOD</Text>
-
+              {/* Action Button: 1-Tap Cash Refund */}
               <View style={styles.buttonStack}>
-                {/* Option 1: Refund via Cash */}
                 <TouchableOpacity
                   activeOpacity={0.8}
-                  onPress={() => handleSelectRefund('Cash')}
+                  onPress={handleConfirmCashRefund}
                   style={styles.cashRefundBtn}
                 >
                   <View style={styles.btnIconCircleCash}>
                     <Banknote size={20} color={COLORS.forest} strokeWidth={2.2} />
                   </View>
                   <View style={styles.btnTextCol}>
-                    <Text style={styles.btnPrimaryTextCash}>Refund via Cash</Text>
+                    <Text style={styles.btnPrimaryTextCash}>
+                      Refund ₹{refundAmount.toLocaleString('en-IN')} via Cash
+                    </Text>
                     <Text style={styles.btnSubTextCash}>
                       Deduct ₹{refundAmount.toLocaleString('en-IN')} from till cash
                     </Text>
                   </View>
                 </TouchableOpacity>
-
-                {/* Option 2: Refund via UPI */}
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => handleSelectRefund('UPI')}
-                  style={styles.upiRefundBtn}
-                >
-                  <View style={styles.btnIconCircleUpi}>
-                    <Smartphone size={20} color="#0D47A1" strokeWidth={2.2} />
-                  </View>
-                  <View style={styles.btnTextCol}>
-                    <Text style={styles.btnPrimaryTextUpi}>Refund via UPI</Text>
-                    <Text style={styles.btnSubTextUpi}>
-                      Reverse ₹{refundAmount.toLocaleString('en-IN')} via UPI
-                    </Text>
-                  </View>
-                </TouchableOpacity>
               </View>
-
-              {/* Checkbox: Print Cancelled KOT Alert */}
-              <TouchableOpacity
-                activeOpacity={0.75}
-                onPress={togglePrintKot}
-                style={styles.printToggleRow}
-              >
-                <View
-                  style={[
-                    styles.checkbox,
-                    shouldPrintKot && styles.checkboxActive,
-                  ]}
-                >
-                  {shouldPrintKot && (
-                    <Check size={12} color={COLORS.white} strokeWidth={3} />
-                  )}
-                </View>
-                <Printer size={15} color={COLORS.forest} strokeWidth={2.2} />
-                <Text style={styles.printToggleText}>
-                  Print cancelled alert to kitchen (RawBT KOT)
-                </Text>
-              </TouchableOpacity>
 
               {/* Cancel / Dismiss CTA */}
               <TouchableOpacity
@@ -296,16 +244,8 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
     letterSpacing: -0.5,
   },
-  selectLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: COLORS.slate,
-    letterSpacing: 0.8,
-    marginBottom: 10,
-  },
   buttonStack: {
-    gap: 10,
-    marginBottom: 14,
+    marginBottom: 16,
   },
   cashRefundBtn: {
     flexDirection: 'row',
@@ -339,63 +279,7 @@ const styles = StyleSheet.create({
     color: COLORS.slate,
     marginTop: 1,
   },
-  upiRefundBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EEF4FF',
-    borderWidth: 1.5,
-    borderColor: '#1976D2',
-    borderRadius: 12,
-    padding: 12,
-    gap: 12,
-  },
-  btnIconCircleUpi: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#D6E4FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  btnPrimaryTextUpi: {
-    fontSize: 14.5,
-    fontWeight: '800',
-    color: '#0D47A1',
-  },
-  btnSubTextUpi: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: COLORS.slate,
-    marginTop: 1,
-  },
-  printToggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    marginBottom: 12,
-  },
-  checkbox: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    borderColor: COLORS.slate,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.white,
-  },
-  checkboxActive: {
-    backgroundColor: COLORS.forest,
-    borderColor: COLORS.forest,
-  },
-  printToggleText: {
-    fontSize: 11.5,
-    fontWeight: '600',
-    color: COLORS.forest,
-    flex: 1,
-  },
+
   dismissBtn: {
     paddingVertical: 10,
     alignItems: 'center',

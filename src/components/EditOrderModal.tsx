@@ -154,13 +154,14 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
     setItems((prev) => {
       const baseDishId = menuDish.id.split('_addon_')[0];
 
-      // 1. Check if there is an existing UN-SERVED add-on batch of this item added in this session:
+      // 1. Check if there is an existing UN-SERVED, unprinted add-on batch of this item in this edit session:
       const existingUnservedAddonIdx = prev.findIndex(
         (i) =>
           i.id.split('_addon_')[0] === baseDishId &&
           Boolean(i.isAddon) &&
           (i.servedQuantity ?? 0) === 0 &&
-          i.status !== 'cancelled'
+          i.status !== 'cancelled' &&
+          !i.isPrinted
       );
 
       if (existingUnservedAddonIdx >= 0) {
@@ -172,30 +173,9 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
         return copy;
       }
 
-      // 2. Check if an original (non-addon) item exists and has NOT been served
-      const originalItemIdx = prev.findIndex(
-        (i) =>
-          !i.isAddon &&
-          (i.id === menuDish.id || i.id.split('_addon_')[0] === baseDishId)
-      );
-
-      if (
-        originalItemIdx >= 0 &&
-        (prev[originalItemIdx].servedQuantity ?? 0) === 0 &&
-        prev[originalItemIdx].status !== 'completed'
-      ) {
-        // Can increment the original unserved dish
-        const copy = [...prev];
-        copy[originalItemIdx] = {
-          ...copy[originalItemIdx],
-          quantity: copy[originalItemIdx].quantity + 1,
-          status: copy[originalItemIdx].status === 'cancelled' ? 'pending' : copy[originalItemIdx].status,
-        };
-        return copy;
-      }
-
-      // 3. Otherwise treat newly added dish as an INDEPENDENT BATCH with an isAddon: true flag,
+      // 2. Otherwise treat newly added dish as a separate add-on line item with an isAddon: true flag,
       // its own unique item ID, its addition timestamp, and servedQuantity: 0.
+      // NEVER merge into or mutate an existing original or already-served line item.
       const nowIso = new Date().toISOString();
       const uniqueAddonId = `${baseDishId}_addon_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
@@ -224,9 +204,9 @@ const EditOrderModalContent: React.FC<EditOrderModalContentProps> = ({
     const targetItem = items[index];
     const servedCount = targetItem.servedQuantity ?? 0;
 
-    // Do NOT simply increment the quantity of an existing item if that item has already been
-    // partially or fully served (servedQuantity > 0). Create an independent add-on batch!
-    if (servedCount > 0 || targetItem.status === 'completed') {
+    // Do NOT increment quantity of an existing original or already-served item (which turns 1/1 into 1/2).
+    // Instead, delegate to handleAddDish to append a separate add-on item in the Add-Ons section!
+    if (!targetItem.isAddon || servedCount > 0 || targetItem.status === 'completed' || targetItem.isPrinted) {
       handleAddDish(targetItem);
       return;
     }

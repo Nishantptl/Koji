@@ -32,8 +32,6 @@ import { KojiConfirmModal, KojiConfirmModalProps } from '../components/KojiConfi
 import {
   printAddonStationKots,
   printStationKots,
-  printCancelledItemKot,
-  printCancelledOrderKot,
 } from '../services/printService';
 import {
   sendDishReadyNotification,
@@ -111,6 +109,7 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
     isFullOrderCancellation?: boolean;
     itemIndex?: number;
     decrementOnly?: boolean;
+    cancelQuantity?: number;
     cancelledItem?: CartItem;
     cancelledQty?: number;
     updatedItems?: CartItem[];
@@ -253,7 +252,6 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
             const newMetrics = await getDailyMetrics();
             setMetrics(newMetrics);
             onOrdersChanged?.();
-            await printCancelledOrderKot(order).catch(() => {});
           } catch (err: any) {
             setConfirmModal({
               visible: true,
@@ -273,62 +271,69 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
     });
   };
 
-  // Single-dish cancellation prompt (handles decrement by 1 vs cancel entire dish)
+  // Single-dish cancellation prompt (capped to unserved quantity: orderedQty - doneQty)
   const handlePromptCancelItem = (order: Order, itemIndex: number) => {
     const item = order.items[itemIndex];
-    if (!item) return;
+    if (!item || item.status === 'cancelled') return;
     const cleanToken = order.token.replace(/^#+/, '');
-    const dishSummary = `Token #${cleanToken} • ${item.quantity}x ${item.name} (₹${item.price * item.quantity})`;
+    const cancellableQty = Math.max(0, item.quantity - (item.servedQuantity || 0));
+    if (cancellableQty <= 0) return;
 
-    if (item.quantity > 1) {
+    if (cancellableQty === 1) {
+      const dishSummary = `Token #${cleanToken} • 1x ${item.name} (₹${item.price})`;
       setConfirmModal({
         visible: true,
         variant: 'danger',
         badgeLabel: 'Cancel Dish',
         title: `Cancel ${item.name}?`,
-        message: `This dish has quantity ${item.quantity}. Would you like to decrement by 1 or cancel the entire dish?`,
+        message: `Are you sure you want to cancel 1x ${item.name}? It will be removed from the kitchen prep queue.`,
         highlightText: dishSummary,
-        primaryLabel: 'Decrement by 1',
-        secondaryLabel: `Cancel All (${item.quantity}x)`,
+        primaryLabel: 'Cancel 1 Dish',
         cancelLabel: 'Keep Dish',
         onPrimaryPress: async () => {
           setConfirmModal(null);
-          await executeItemCancellation(order, itemIndex, true);
-        },
-        onSecondaryPress: async () => {
-          setConfirmModal(null);
-          await executeItemCancellation(order, itemIndex, false);
+          await executeItemCancellation(order, itemIndex, 1);
         },
         onClose: () => setConfirmModal(null),
       });
     } else {
+      const dishSummary = `Token #${cleanToken} • ${cancellableQty} unserved of ${item.quantity}x ${item.name}`;
       setConfirmModal({
         visible: true,
         variant: 'danger',
         badgeLabel: 'Cancel Dish',
-        title: 'Cancel Dish?',
-        message: 'Are you sure you want to cancel this dish? It will be removed from the kitchen prep queue.',
+        title: `Cancel ${item.name}?`,
+        message: `This dish has ${cancellableQty} unserved units. Would you like to cancel 1 unit or cancel all ${cancellableQty} unserved units?`,
         highlightText: dishSummary,
-        primaryLabel: 'Cancel Dish',
+        primaryLabel: 'Cancel 1 Unit',
+        secondaryLabel: `Cancel All (${cancellableQty}x)`,
         cancelLabel: 'Keep Dish',
         onPrimaryPress: async () => {
           setConfirmModal(null);
-          await executeItemCancellation(order, itemIndex, false);
+          await executeItemCancellation(order, itemIndex, 1);
+        },
+        onSecondaryPress: async () => {
+          setConfirmModal(null);
+          await executeItemCancellation(order, itemIndex, cancellableQty);
         },
         onClose: () => setConfirmModal(null),
       });
     }
   };
 
-  // Executes single-dish cancellation or decrement, calculating refund requirements
+  // Executes single-dish cancellation, calculating refund requirements
   const executeItemCancellation = async (
     order: Order,
     itemIndex: number,
-    decrementOnly: boolean
+    cancelQty: number
   ) => {
     try {
       const item = order.items[itemIndex];
       if (!item) return;
+
+      const cancellableQty = Math.max(0, item.quantity - (item.servedQuantity || 0));
+      const qtyToCancel = Math.min(cancelQty, cancellableQty);
+      if (qtyToCancel <= 0) return;
 
       const currentUpi = getOrderUpiPaid(order);
       const currentCash = getOrderCashPaid(order);
@@ -337,10 +342,11 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
       // Simulate new grandTotal after reduction
       const testItems = order.items.map((it, idx) => {
         if (idx === itemIndex) {
-          if (decrementOnly && it.quantity > 1) {
-            return { ...it, quantity: it.quantity - 1 };
+          const nextQty = it.quantity - qtyToCancel;
+          if (nextQty <= 0) {
+            return { ...it, quantity: 0, status: 'cancelled' as ItemStatus };
           }
-          return { ...it, status: 'cancelled' as ItemStatus };
+          return { ...it, quantity: nextQty };
         }
         return it;
       });
@@ -354,12 +360,12 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
           visible: true,
           order,
           refundAmount: refundDue,
-          reason: `${item.name} (${decrementOnly ? '1x' : `${item.quantity}x`}) Cancelled`,
+          reason: `${item.name} (${qtyToCancel}x) Cancelled`,
           isFullOrderCancellation: false,
           itemIndex,
-          decrementOnly,
+          cancelQuantity: qtyToCancel,
           cancelledItem: item,
-          cancelledQty: decrementOnly ? 1 : item.quantity,
+          cancelledQty: qtyToCancel,
         });
         return;
       }
@@ -368,15 +374,13 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
       const updated = await cancelOrderItemWithRefund({
         orderId: order.id,
         itemIndex,
-        decrementOnly,
+        cancelQuantity: qtyToCancel,
+        refundMethod: 'Cash',
       });
       setOrders(updated);
       const newMetrics = await getDailyMetrics();
       setMetrics(newMetrics);
       onOrdersChanged?.();
-
-      // Print cancelled item KOT alert
-      await printCancelledItemKot(order, item, decrementOnly ? 1 : item.quantity).catch(() => {});
     } catch (err: any) {
       setConfirmModal({
         visible: true,
@@ -411,10 +415,9 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
     });
   };
 
-  // Confirms and settles refund via Cash or UPI from RefundModal
+  // Confirms and settles refund via Cash from RefundModal
   const handleConfirmRefund = async (
-    refundMethod: 'Cash' | 'UPI',
-    shouldPrintKot: boolean
+    refundMethod: 'Cash' = 'Cash'
   ) => {
     if (!refundModal) return;
     try {
@@ -422,45 +425,37 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
         order,
         isFullOrderCancellation,
         itemIndex,
-        decrementOnly,
-        cancelledItem,
+        cancelQuantity,
         cancelledQty,
         updatedItems,
         orderNotes,
       } = refundModal;
 
       if (isFullOrderCancellation) {
-        const updated = await cancelFullOrder(order.id, refundMethod, 'Cancelled by cashier');
+        const updated = await cancelFullOrder(order.id, 'Cash', 'Cancelled by cashier');
         setOrders(updated);
-        if (shouldPrintKot) {
-          await printCancelledOrderKot(order).catch(() => {});
-        }
       } else if (updatedItems) {
         const updated = await updateOrderItemsWithRefund(
           order.id,
           updatedItems,
           orderNotes,
-          refundMethod
+          'Cash'
         );
         setOrders(updated);
-        if (shouldPrintKot) {
-          await printStationKots({
-            ...order,
-            items: updatedItems,
-            notes: orderNotes || order.notes,
-          }).catch(() => {});
-        }
+        await printStationKots({
+          ...order,
+          items: updatedItems,
+          notes: orderNotes || order.notes,
+        }).catch(() => {});
       } else if (typeof itemIndex === 'number') {
+        const qty = cancelledQty || cancelQuantity || 1;
         const updated = await cancelOrderItemWithRefund({
           orderId: order.id,
           itemIndex,
-          decrementOnly,
-          refundMethod,
+          cancelQuantity: qty,
+          refundMethod: 'Cash',
         });
         setOrders(updated);
-        if (shouldPrintKot && cancelledItem) {
-          await printCancelledItemKot(order, cancelledItem, cancelledQty || 1).catch(() => {});
-        }
       }
 
       const newMetrics = await getDailyMetrics();
@@ -951,16 +946,44 @@ export const OrderListScreen: React.FC<OrderListScreenProps> = ({
 
             <View style={styles.metricsCollectedRow}>
               <View style={styles.metricsCollectedPill}>
-                <Text style={styles.metricsCollectedLabel}>UPI •</Text>
-                <Text style={styles.metricsCollectedValue}>
+                <Text style={styles.metricsCollectedLabel} numberOfLines={1}>
+                  UPI
+                </Text>
+                <Text
+                  style={styles.metricsCollectedValue}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit={true}
+                  minimumFontScale={0.8}
+                >
                   ₹{(metrics.totalUpiRevenue || 0).toLocaleString('en-IN')}
                 </Text>
               </View>
 
               <View style={styles.metricsCollectedPill}>
-                <Text style={styles.metricsCollectedLabel}>Cash •</Text>
-                <Text style={styles.metricsCollectedValue}>
+                <Text style={styles.metricsCollectedLabel} numberOfLines={1}>
+                  Cash
+                </Text>
+                <Text
+                  style={styles.metricsCollectedValue}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit={true}
+                  minimumFontScale={0.8}
+                >
                   ₹{(metrics.totalCashRevenue || 0).toLocaleString('en-IN')}
+                </Text>
+              </View>
+
+              <View style={styles.metricsCollectedPill}>
+                <Text style={styles.metricsCollectedLabel} numberOfLines={1}>
+                  Refund
+                </Text>
+                <Text
+                  style={styles.metricsCollectedValue}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit={true}
+                  minimumFontScale={0.8}
+                >
+                  ₹{(metrics.totalRefundRevenue || 0).toLocaleString('en-IN')}
                 </Text>
               </View>
             </View>
@@ -1356,23 +1379,25 @@ const styles = StyleSheet.create({
   },
   metricsCollectedPill: {
     flex: 1,
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     backgroundColor: COLORS.surfaceMuted,
     borderRadius: 10,
     paddingVertical: 8,
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: 6,
     borderWidth: 1,
     borderColor: COLORS.borderLight,
+    gap: 3,
   },
   metricsCollectedLabel: {
     fontSize: 11,
     color: COLORS.textSecondary,
     ...FONTS.semibold,
+    letterSpacing: 0.3,
   },
   metricsCollectedValue: {
-    fontSize: 13,
+    fontSize: 13.5,
     color: COLORS.organic,
     ...FONTS.bold,
   },

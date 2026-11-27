@@ -2,7 +2,7 @@
   "expo": {
     "name": "Kōji",
     "slug": "koji",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "light",
@@ -18,7 +18,9 @@
       "package": "com.niishhh.kojipos",
       "permissions": [
         "READ_CONTACTS",
-        "WRITE_CONTACTS"
+        "WRITE_CONTACTS",
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS"
       ]
     },
     "web": {
@@ -33,6 +35,11 @@
           "contactsPermission": "Allow Kōji to access your contacts to sync customer phone numbers."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ff6b13df-ff61-4632-b7e3-2401f741b12d"
+      }
+    }
   }
 }
